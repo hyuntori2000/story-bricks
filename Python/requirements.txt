@@ -1,2 +1,4 @@
 # The REST calls use Python's standard library. Realtime speech uses this client.
 websocket-client>=1.8,<2
+# Bundled ffmpeg joins and normalizes generated animation shots for Quest playback.
+imageio-ffmpeg>=0.6,<0.7

@@ -31,6 +31,7 @@ from workspace_storage import (StorageError, SessionStateStore, RequestArchive, 
                                owner_from_query, session_directory, read_json, write_json)
 import guided_dialogue
 from comfy_word_images import ComfyCardProvider, WordImageJobs, ImageError
+from comfy_story_videos import ComfyVideoProvider, StoryVideoJobs, VideoError
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parent
@@ -39,6 +40,7 @@ MAX_SESSION_STATE_BYTES = 2 * 1024 * 1024
 MAX_INPUT_WAV_BYTES = 6 * 1024 * 1024
 MAX_AUDIO_BYTES = 24000 * 2 * 120
 MAX_OUTPUT_TEXT = 4000
+MAX_VIDEO_BYTES = 128 * 1024 * 1024
 MANUAL_COMPLETION_MODE = "manual_saved_progress"
 ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
 AUDIO_RE = re.compile(r"^/audio/([0-9a-f]{32})\.wav$")
@@ -587,10 +589,11 @@ class PendingRequest:
 
 class Backend:
     def __init__(self, upstream, audio_directory: Path, prompts: dict, maximum_requests: int = 512, effects=None,
-                 workspace_directory=None, image_jobs=None):
+                 workspace_directory=None, image_jobs=None, video_jobs=None):
         self.upstream = upstream
         self.effects = effects
         self.image_jobs = image_jobs
+        self.video_jobs = video_jobs
         self.workspace_directory = Path(workspace_directory) if workspace_directory is not None else Path(audio_directory).parent / "workspaces"
         self.audio = AudioStore(audio_directory, workspace_directory=self.workspace_directory)
         self.session_states = SessionStateStore(self.workspace_directory)
@@ -615,11 +618,27 @@ class Backend:
                 "workspaceStorageEnabled": True, "workspaceDirectory": str(self.workspace_directory),
                 "sessionStateMaxBytes": MAX_SESSION_STATE_BYTES, "unscopedStorage": "legacy",
                 "guidedDialogueEnabled": True, "storySentenceCount": 7,
-                "wordImages": self.image_jobs.health() if self.image_jobs else {"configured": False}}
+                "wordImages": self.image_jobs.health() if self.image_jobs else {"configured": False},
+                "storyVideos": self.video_jobs.health() if self.video_jobs else {"configured": False}}
 
     def dispatch(self, route: str, body: bytes, content_type: str) -> tuple[int, dict]:
         started_at = time.perf_counter()
         parsed = urlsplit(route)
+        if parsed.path == "/story-video":
+            if content_type.split(";", 1)[0].strip().lower() != "application/json":
+                raise BackendError("content_type", "Story animations require application/json.", 415)
+            if len(body) > MAX_JSON_BYTES:
+                raise BackendError("payload_too_large", "Story animation request is too large.", 413)
+            if self.video_jobs is None:
+                raise BackendError("video_unavailable", "Story animation generation is not configured.", 503)
+            try:
+                value = json.loads(body)
+                if not isinstance(value, dict): raise ValueError()
+                return 200, self.video_jobs.submit(value)
+            except VideoError as error:
+                raise BackendError(error.code, error.message, error.status) from None
+            except (ValueError, TypeError, UnicodeError):
+                raise BackendError("invalid_json", "Expected a story animation request object.") from None
         if parsed.path == "/word-image":
             if content_type.split(";", 1)[0].strip().lower() != "application/json":
                 raise BackendError("content_type", "Word images require application/json.", 415)
@@ -834,6 +853,57 @@ def make_server(backend: Backend, port: int = 8766) -> ThreadingHTTPServer:
         def send_json(self, status: int, value: dict):
             self.send_data(status, json.dumps(value, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+        def send_video(self, path):
+            # Stream a validated local final file; never buffer an entire movie in RAM.
+            try:
+                source = Path(path).open("rb")
+            except OSError:
+                raise BackendError("video_not_found", "The saved animation is unavailable.", 404) from None
+            with source:
+                size = os.fstat(source.fileno()).st_size
+                if not 0 < size <= MAX_VIDEO_BYTES:
+                    raise BackendError("video_size", "The saved animation has an invalid size.", 502)
+                start, end, status = 0, size - 1, 200
+                requested = self.headers.get("Range")
+                if requested:
+                    match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested)
+                    valid = bool(len(requested) <= 128 and match and (match[1] or match[2]))
+                    if valid:
+                        if match[1]:
+                            start = int(match[1]); end = min(int(match[2]), size - 1) if match[2] else size - 1
+                        else:
+                            suffix = int(match[2]); start = max(0, size - suffix)
+                            valid = suffix > 0
+                        valid = valid and 0 <= start <= end < size
+                    if not valid:
+                        self.send_response(416)
+                        self.send_header("Content-Range", "bytes */%d" % size)
+                        self.send_header("Content-Length", "0")
+                        self.send_header("Connection", "close")
+                        self.end_headers(); self.close_connection = True
+                        return
+                    status = 206
+                self.send_response(status)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Content-Length", str(end - start + 1))
+                self.send_header("Accept-Ranges", "bytes")
+                if status == 206:
+                    self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                source.seek(start)
+                remaining = end - start + 1
+                try:
+                    while remaining:
+                        chunk = source.read(min(64 * 1024, remaining))
+                        if not chunk: break
+                        self.wfile.write(chunk); remaining -= len(chunk)
+                except (OSError, TimeoutError):
+                    pass
+                self.close_connection = True
+
         def error_result(self, error: BackendError):
             # IDs are filled for well-formed dispatched requests. Invalid envelopes
             # intentionally have empty IDs and must be treated as failed by Unity.
@@ -844,6 +914,14 @@ def make_server(backend: Backend, port: int = 8766) -> ThreadingHTTPServer:
                 parsed = urlsplit(self.path)
                 if parsed.path == "/health":
                     self.send_json(200, backend.health())
+                elif parsed.path == "/story-video":
+                    if backend.video_jobs is None:
+                        raise BackendError("video_unavailable", "Story animations are not configured.", 503)
+                    self.send_json(200, backend.video_jobs.status(parse_qs(parsed.query, keep_blank_values=True)))
+                elif re.fullmatch(r"/story-videos/[0-9a-f]{32}\.mp4", parsed.path):
+                    if backend.video_jobs is None:
+                        raise BackendError("video_unavailable", "Story animations are not configured.", 503)
+                    self.send_video(backend.video_jobs.video_file(parsed.path))
                 elif parsed.path == "/word-image":
                     if backend.image_jobs is None:
                         raise BackendError("image_unavailable", "Word images are not configured.", 503)
@@ -859,6 +937,8 @@ def make_server(backend: Backend, port: int = 8766) -> ThreadingHTTPServer:
             except BackendError as error:
                 self.error_result(error)
             except ImageError as error:
+                self.error_result(BackendError(error.code, error.message, error.status))
+            except VideoError as error:
                 self.error_result(BackendError(error.code, error.message, error.status))
 
         def do_POST(self):
@@ -906,10 +986,11 @@ def main():
         effects = ElevenLabsEffects(settings.elevenlabs_api_key, settings.sound_effect_model)
         workspace_directory = PROJECT / "runtime" / "workspaces"
         images = WordImageJobs(ComfyCardProvider(settings.comfy_api_key, settings.comfy_base_url), workspace_directory)
+        videos = StoryVideoJobs(ComfyVideoProvider(settings.comfy_api_key, settings.comfy_base_url), workspace_directory)
         backend = Backend(OpenAIUpstream(settings), HERE / "runtime/audio", prompts, effects=effects,
-                          workspace_directory=workspace_directory, image_jobs=images)
+                          workspace_directory=workspace_directory, image_jobs=images, video_jobs=videos)
         server = make_server(backend, args.port)
-    except (OSError, ValueError, BackendError, ImageError):
+    except (OSError, ValueError, BackendError, ImageError, VideoError):
         print("Backend could not start. Check the local prompts, dependencies, and whether the port is available.")
         return 1
     print("Story voice backend: http://127.0.0.1:%d | key configured: %s | AI-generated voice" % (args.port, "yes" if settings.api_key else "no"), flush=True)
@@ -921,6 +1002,7 @@ def main():
     finally:
         server.server_close()
         images.close()
+        videos.close()
     return 0
 
 

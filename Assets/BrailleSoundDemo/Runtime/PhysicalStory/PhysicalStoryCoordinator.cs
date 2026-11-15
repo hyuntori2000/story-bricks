@@ -54,6 +54,7 @@ namespace BrailleSoundDemo.PhysicalStory
         UnityWebRequest activePoll;
         PinchWordBox pendingPinchBox;
         WordImagePipeline wordImages;
+        StoryVideoPipeline storyVideos;
         HandApproachSample pendingPinchSample;
         string pendingPinchSession;
         int pendingPinchWordIndex, pendingPinchRevision;
@@ -115,6 +116,7 @@ namespace BrailleSoundDemo.PhysicalStory
         {
             experienceActive=false;
             wordImages?.CancelAll();
+            storyVideos?.CancelAll();
             CancelRecognition(); table?.CancelPinchTarget(); sender?.CancelPending("Choose an experience first");
             if(statusHint!=null) statusHint.gameObject.SetActive(false);
         }
@@ -178,6 +180,9 @@ namespace BrailleSoundDemo.PhysicalStory
             Images.EnableImagePreparation=false;
             wordImages=GetComponent<WordImagePipeline>();
             if(wordImages==null) wordImages=gameObject.AddComponent<WordImagePipeline>();
+            storyVideos=GetComponent<StoryVideoPipeline>();
+            if(storyVideos==null) storyVideos=gameObject.AddComponent<StoryVideoPipeline>();
+            storyVideos.VideoReady+=OnStoryVideoReady;
             inputFeedback=gameObject.AddComponent<AudioSource>();
             inputFeedback.playOnAwake=false; inputFeedback.spatialBlend=0; inputFeedback.volume=.8f;
             recognitionRetry=Resources.Load<AudioClip>("StoryAudio/recognition_retry");
@@ -214,6 +219,7 @@ namespace BrailleSoundDemo.PhysicalStory
             // Fresh depth is required by the capture loop, but existing world-fixed
             // audio only needs valid head/origin tracking. Looking away is permitted.
             Flow.SetSpatialReady(table.HeadTrackingValid);
+            storyVideos?.SetSpatialReady(table.HeadTrackingValid);
             if(!finishMenuOpen && liveConversation && OVRInput.GetDown(OVRInput.RawButton.A) && Flow.CanAnswer) Flow.AnswerAction();
             TryStartQueuedConversation();
         }
@@ -692,6 +698,7 @@ namespace BrailleSoundDemo.PhysicalStory
             {
                 SessionStore?.End(reason);
                 wordImages?.CancelAll();
+                storyVideos?.CancelAll();
                 CancelRecognition();
                 if(inputFeedback != null) inputFeedback.Stop();
                 table?.CancelPinchTarget();
@@ -727,6 +734,7 @@ namespace BrailleSoundDemo.PhysicalStory
                 // API conversation sessions may advance independently of
                 // captured anchors and words queued for the following story.
                 wordImages?.CancelAll();
+                storyVideos?.CancelAll();
                 observedStorySession=Flow.Record.sessionId;
                 Images?.ResetSession(observedStorySession);
             }
@@ -743,6 +751,25 @@ namespace BrailleSoundDemo.PhysicalStory
             if(Images == null || Flow?.Record == null) return;
             if(observedStorySession!=Flow.Record.sessionId) OnFlowChanged();
             Images.Prepare(output);
+        }
+
+        /// <summary>Called only after the final story narration finishes in the current experience.</summary>
+        public bool BeginStoryVideo(StoryOutput output)
+        {
+            if(!initialized || !experienceActive || !liveConversation || workspaceId!="demo" ||
+                Flow?.Record==null || !Flow.Record.completed || output==null || storyVideos==null ||
+                output.workspaceId!=workspaceId || output.experienceSessionId!=workspaceCaptureSession ||
+                output.sessionId!=Flow.Record.sessionId || rig?.centerEyeAnchor==null) return false;
+            string experience=workspaceCaptureSession, conversation=Flow.Record.sessionId;
+            return storyVideos.Begin(output,rig.centerEyeAnchor,
+                ()=>isActiveAndEnabled && experienceActive && workspaceId=="demo" &&
+                    workspaceCaptureSession==experience && Flow?.Record?.sessionId==conversation,
+                SetStatus,stage=>SessionStore?.SetStage(stage));
+        }
+
+        void OnStoryVideoReady(string path)
+        {
+            if(experienceActive) EmitPresentationEvent("video.ready");
         }
 
         void CancelRecognition()
@@ -811,6 +838,8 @@ namespace BrailleSoundDemo.PhysicalStory
         void OnDestroy()
         {
             wordImages?.CancelAll();
+            storyVideos?.CancelAll();
+            if(storyVideos!=null) storyVideos.VideoReady-=OnStoryVideoReady;
             CancelRecognition();
             if(table != null)
             {

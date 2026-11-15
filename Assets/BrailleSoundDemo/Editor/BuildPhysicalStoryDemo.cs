@@ -113,6 +113,7 @@ namespace BrailleSoundDemo.Editor
                 Tests.DoublePinchCaptureVerification.Run();
                 Tests.DoublePinchTimerVerification.Run();
                 Tests.PinchWordBoxVerification.Run();
+                Tests.StoryVideoVerification.Run();
                 Tests.TableSurfaceVerification.Run();
                 Tests.HandRegionProjectionVerification.Run();
                 Tests.PhysicalWordAnchorVerification.Run();

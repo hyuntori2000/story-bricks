@@ -1,0 +1,32 @@
+{
+  "_comment": "Template for ONE shot. storybricks.py fills <<PROMPT>>, duration, seed, and adds one LoadImage node per reference card (ref_1..ref_4) wired to model.reference_images.image_N.",
+  "116": {
+    "inputs": {
+      "model": "Seedance 2.5 Draft",
+      "model.prompt": "<<PROMPT>>",
+      "model.resolution": "480p",
+      "model.ratio": "16:9",
+      "model.duration": 10,
+      "model.generate_audio": true,
+      "model.task_type": "auto",
+      "model.output_format": "mp4",
+      "model.auto_downscale": true,
+      "model.auto_upscale": false,
+      "seed": 0,
+      "watermark": false
+    },
+    "class_type": "ByteDance2ReferenceNodeV2",
+    "_meta": {"title": "Shot (Seedance 2.5 Draft, reference-to-video)"}
+  },
+  "117": {
+    "inputs": {
+      "filename_prefix": "video/storybricks_shot",
+      "format": "auto",
+      "format.codec": "auto",
+      "codec": "auto",
+      "video": ["116", 0]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {"title": "Save shot"}
+  }
+}

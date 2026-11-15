@@ -117,7 +117,8 @@ namespace BrailleSoundDemo.Presentation
         void OnLiveNarrationCompleted(StoryOutput output)
         {
             if(!Active("demo") || output.experienceSessionId!=experience) return;
-            core.SessionStore?.SetStage("next_stage");
+            if(!core.BeginStoryVideo(output))
+                core.SessionStore?.SetStage("animation_unavailable");
         }
         public void RestartSelectedExperience()
         {

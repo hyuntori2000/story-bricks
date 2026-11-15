@@ -1,12 +1,12 @@
-# Comfy word cards
+# Comfy word cards and story films
 
 `card_api.json` is the unchanged card workflow supplied in
 `/Users/jihyunyu/Downloads/storybricks-comfy/workflows/card_api.json`.
 The adapter copies the supplied `CARD_STYLE` and changes only prompt/seed at node
 104 and the output prefix at node 106. It keeps `gemini-3-pro-image-preview`,
 `birefnet.safetensors`, all node IDs, and the transparent-alpha chain. It requests
-only the final `SaveImage` node 106 PNG. No film workflow or bundled-card upload is
-included. Abstract words such as WIND still request a visual representation.
+only the final `SaveImage` node 106 PNG. Abstract words such as WIND still request
+a visual representation.
 
 The Python backend has its own two-worker, bounded queue. Requests are scoped by
 workspace, experience session, conversation session, request ID and captured group.
@@ -33,4 +33,49 @@ Offline checks:
 
 ```sh
 PYTHONPATH=Python Python/.venv/bin/python -m unittest test_comfy_word_images
+```
+
+## Story films
+
+`shot_api.json` is the unchanged supplied one-shot workflow. Node 116 is
+`ByteDance2ReferenceNodeV2` using **Seedance 2.5 Draft**, 480p, 16:9, generated audio
+and MP4 output; node 117 is `SaveVideo`. The film adapter changes only the scene
+prompt, duration, seed, output prefix and up to five `LoadImage` reference inputs.
+It reads only node 117's final MP4 from its `images` output list.
+
+The Unity client starts the film after the story narration and animation invitation
+finish. The Mac validates that the requested text/audio match a successful owned
+story archive. Its saved seven sentences become four chronological scenes, grouped
+2/2/2/1, with each shot lasting 6–10 seconds. The full story supplies continuity;
+each shot is restricted to its own passage. There is no additional story-writing
+API call or replacement plot.
+
+References come from that story's captured groups and conversation session. The
+adapter waits up to 120 seconds for pending cards, uploads the available saved
+PNGs, and never regenerates them. The reference-video node requires at least one
+usable card, so an experience with no ready cards fails before paid video submits.
+Shots are submitted once and polled concurrently, with at most four polls. One
+film worker and two active film slots stay independent of voice and word images.
+
+Each experience stores `videos/<job-id>/job.json`, the shot MP4s and `story.mp4`.
+Request aliases deduplicate the same archived story. A durable marker precedes
+each paid submit and its returned prompt ID is saved immediately. Restarts poll
+known IDs; an unknown submission outcome fails instead of silently spending again.
+Generated media, job records, API responses, and keys are not committed.
+
+Downloads accept only the final bounded MP4, use credential-free public HTTPS
+redirects and stop at 64 MiB per shot. Local ffmpeg normalizes and joins the real
+shots into H.264/yuv420p with AAC and MP4 `faststart`, capped at 128 MiB. Install
+ffmpeg on PATH or `imageio-ffmpeg`; missing ffmpeg is detected before paid calls.
+The final file is saved atomically. On macOS, QuickTime Player is opened once for
+the saved movie; a preview-launch failure does not invalidate a ready film.
+
+Comfy generation latency and provider concurrency vary. Two minutes is a target,
+not a playback timer: VR receives the completed saved movie only when it is ready.
+The supplied package's credit/time estimates are not a fixed service guarantee.
+
+Focused offline film checks (fake provider, temporary media, no paid requests):
+
+```sh
+PYTHONPATH=Python Python/.venv/bin/python -m unittest test_comfy_story_videos
 ```
