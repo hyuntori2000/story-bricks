@@ -114,7 +114,7 @@ namespace BrailleSoundDemo.Presentation
             actionRoot = NewRoot("Story actions", visualRoot, new Vector3(-.25f, .30f, 0));
             homeTexture = Resources.Load<Texture2D>("StoryBricks/Buttons/home");
             createStoryTexture = Resources.Load<Texture2D>("StoryBricks/Buttons/create_story");
-            AddPaintedButton(actionRoot, "Home", Action.Home, new Vector3(-.065f, 0, 0), homeTexture);
+            AddPaintedButton(visualRoot, "Home", Action.Home, new Vector3(.185f, .30f, 0), homeTexture);
             AddPaintedButton(actionRoot, "Create Story", Action.Create, new Vector3(.065f, 0, 0), createStoryTexture);
             message = Label(actionRoot, "", new Vector3(0, -.05f, -.01f), .014f);
 
@@ -265,7 +265,7 @@ namespace BrailleSoundDemo.Presentation
                 if (valid)
                 {
                     foreach (var button in buttons)
-                        if (Hit(button.hitArea, ray, out float hit) && hit < distance)
+                        if (Hit(button.hitArea, ray, out float hit, button.action == Action.Home ? .65f : .5f) && hit < distance)
                         { target = button; distance = hit; }
                 }
                 bool overUi = !float.IsPositiveInfinity(distance);
@@ -364,7 +364,7 @@ namespace BrailleSoundDemo.Presentation
 
         // Intersect only menu-owned boxes; physical bricks and scene colliders
         // cannot intercept these rays, and the menu adds no physics targets.
-        static bool Hit(Transform box, Ray ray, out float distance)
+        static bool Hit(Transform box, Ray ray, out float distance, float halfExtent = .5f)
         {
             distance = 0;
             if (box == null || !box.gameObject.activeInHierarchy) return false;
@@ -374,7 +374,8 @@ namespace BrailleSoundDemo.Presentation
             float t = (-.5f - origin.z) / direction.z;
             if (t <= 0 || t > 3) return false;
             var point = origin + direction * t;
-            if (Mathf.Abs(point.x) > .5f || Mathf.Abs(point.y) > .5f) return false;
+            // Home alone has a modest invisible margin; Create Story keeps its exact existing target.
+            if (Mathf.Abs(point.x) > halfExtent || Mathf.Abs(point.y) > halfExtent) return false;
             distance = t;
             return true;
         }
@@ -417,7 +418,7 @@ namespace BrailleSoundDemo.Presentation
         void OnGUI()
         {
             if (coordinator == null || !coordinator.ExperienceActive || XRSettings.isDeviceActive) return;
-            if (GUI.Button(new Rect(20, 20, 90, 42), "Home")) Activate(Action.Home);
+            if (GUI.Button(new Rect(Screen.width - 110, 20, 90, 42), "Home")) Activate(Action.Home);
             bool allowed = GUI.enabled;
             GUI.enabled = allowed && !StorySubmitted && coordinator.SavedWordCount > 0;
             if (GUI.Button(new Rect(120, 20, 120, 42), "Create Story")) Activate(Action.Create);

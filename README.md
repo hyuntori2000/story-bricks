@@ -73,9 +73,9 @@ Story Bricks uses hand interaction and narration as central inputs. The Quest bu
 - **Spelling before conversation:** accepted words are spelled aloud, preserving repeated letters. A trailing period is a control signal and is not spelled as part of the word.
 - **Clear speaking turns:** narration finishes before microphone capture begins, and a ready tone marks when to answer.
 - **More than color feedback:** the scene includes colored capture states, but also uses spoken guidance and audio cues.
-- **Independent story controls:** small **Home** and **Create Story** buttons sit high on the left and are intended to activate with a single pinch.
+- **Independent story controls:** **Home** sits high on the right, while **Create Story** keeps its position high on the left. Both use a single pinch; Home has a slightly larger invisible target.
 
-**Home** clears the active words and returns to the landing screen, preserving archived media. **Create Story** starts the story from saved progress and continues into animation; it does not end the experience. Unfinished speech is not included if the button is pressed before an answer is saved.
+**Home** clears the active words and immediately shows the landing choices, preserving archived media. The existing spoken invitation can finish while the menu is visible. **Create Story** starts the story from saved progress and continues into animation; it does not end the experience. Unfinished speech is not included if the button is pressed before an answer is saved.
 
 A recognized `.` is a separate conversational ending. It waits for the current answer and preceding queued words, asks one final question, and saves that spoken answer before creating the story. It does not act as Home. A period before any word cannot produce an empty story.
 

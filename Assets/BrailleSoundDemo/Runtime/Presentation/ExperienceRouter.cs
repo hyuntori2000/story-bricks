@@ -276,7 +276,13 @@ namespace BrailleSoundDemo.Presentation
         void OnSessionEnded()
         {
             experience=null;
-            if(!changingRoute) BeginOnboarding(false);
+            if(!changingRoute)
+            {
+                BeginOnboarding(false);
+                // Home shows the landing choices immediately; the existing spoken
+                // invitation can finish in parallel and still enable gesture entry.
+                OnOnboardingReady();
+            }
         }
         void BeginOnboarding(bool playOpening)
         {
