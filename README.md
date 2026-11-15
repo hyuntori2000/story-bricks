@@ -8,7 +8,18 @@ The project explores a simple idea: **the stories children imagine should have m
 
 This is a working research/demo prototype, not a validated accessibility or educational product. The implemented interactions, evidence and remaining limitations are described below.
 
-> **Submission source:** [dev/demo-flow-story-library](https://github.com/hyuntori2000/story-bricks/tree/dev/demo-flow-story-library). The default `main` branch remains an earlier shared baseline. The tested application source is preserved by the [story-bricks-demo-2026-11-15 checkpoint](https://github.com/hyuntori2000/story-bricks/tree/story-bricks-demo-2026-11-15); subsequent README updates do not change that checkpoint.
+> **Final demo submission:** [story-bricks-final-demo-2026-11-15](https://github.com/hyuntori2000/story-bricks/tree/story-bricks-final-demo-2026-11-15) · [Release notes](https://github.com/hyuntori2000/story-bricks/releases/tag/story-bricks-final-demo-2026-11-15). The project owner approved this experience after headset testing on November 15, 2026. Ongoing work stays on [dev/demo-flow-story-library](https://github.com/hyuntori2000/story-bricks/tree/dev/demo-flow-story-library); `main` remains an earlier shared baseline until an explicitly approved merge.
+
+### Accepted final demo configuration
+
+- The experience UI is **20% larger**. Home and Create Story retain their original size; Home is upper right and Create Story remains upper left.
+- Home returns directly to the landing choices. Create Story preserves its existing saved-progress story flow.
+- Generated films include the **complete saved story narration once**. The final frame holds if narration is longer; the complete film continues if narration is shorter. Neither is cut to fit the other.
+- The animation waiting screen announces **“Come back in about two minutes to watch your animation. Double pinch to go home. You can find it under See previous story.”** The estimate is not a completion guarantee.
+- Double pinch exits the animation waiting screen without a photo. The Mac accepts the job before this invitation, so rendering continues after returning Home.
+- Double pinch also exits Judy. Re-entering Judy restarts its authored visuals, narration and effects from the beginning.
+
+This release freezes the accepted demo rather than claiming production readiness. The known tracking, recognition and generated-language limitations below remain documented. The earlier `story-bricks-demo-2026-11-15` and `pre-ux-scale-2026-11-15` tags remain available for rollback.
 
 ## Contents
 
@@ -208,7 +219,7 @@ git lfs install
 git lfs pull
 ```
 
-For the fixed application source checkpoint, use the `story-bricks-demo-2026-11-15` tag in a clean checkout. Create a development branch before making changes.
+For the exact submitted version, run `git switch --detach story-bricks-final-demo-2026-11-15` in a clean checkout after cloning. Create a development branch before making changes.
 
 ### 2. Install the backend dependencies
 
@@ -303,7 +314,7 @@ The repository contains working integrations and device-tested flows, with sever
 | Area | Evidence or current boundary |
 | --- | --- |
 | Build and install | The current application checkpoint built and installed successfully on Quest. |
-| Single-pinch story control | Focused input verification passed; a real device log recorded Create Story selection followed by story generation. Home still needs direct confirmation in the final test. |
+| Single-pinch story control | Focused input verification passed; a real device log recorded Create Story selection followed by story generation. Home is upper right and immediately returns to the landing choices. The project owner accepted the overall final headset experience; this does not constitute an exhaustive input-device validation. |
 | Recognition | OCR/braille dispatch and the bounded English retry have focused offline coverage and real capture examples. No representative accuracy benchmark has been completed. White/mixed blocks, boundaries, pose and lighting remain important test cases. |
 | Image generation | A recent FOX image completed and was saved on the Mac; a subsequent COAT image was displayed in VR. |
 | Tracking recovery | A tracking-origin reset cancels image delivery and hides old spatial anchors. An already generated image is not automatically reattached after recovery. This caused the recent missing FOX image in VR and remains unresolved. |
