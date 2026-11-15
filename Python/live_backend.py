@@ -83,7 +83,7 @@ class Settings:
     speech_model: str = "gpt-realtime-2.1-mini"
     voice: str = "marin"
     elevenlabs_api_key: str = ""
-    sound_effect_model: str = "eleven_text_to_sound_v2"
+    sound_effect_model: str = "eleven_text_to_sound_v3"
     comfy_api_key: str = ""
     comfy_base_url: str = "https://cloud.comfy.org"
 
@@ -102,7 +102,7 @@ class Settings:
             speech_model=os.environ.get("OPENAI_SPEECH_MODEL", "gpt-realtime-2.1-mini").strip(),
             voice=os.environ.get("OPENAI_VOICE", "marin").strip(),
             elevenlabs_api_key=os.environ.get("ELEVENLABS_API_KEY", "").strip(),
-            sound_effect_model=os.environ.get("ELEVENLABS_SOUND_EFFECT_MODEL", "eleven_text_to_sound_v2").strip(),
+            sound_effect_model=os.environ.get("ELEVENLABS_SOUND_EFFECT_MODEL", "eleven_text_to_sound_v3").strip(),
             comfy_api_key=(os.environ.get("COMFY_API_KEY") or os.environ.get("COMFY_CLOUD_API_KEY", "")).strip(),
             comfy_base_url=os.environ.get("COMFY_BASE_URL", "https://cloud.comfy.org").strip().rstrip("/"),
         )
@@ -139,7 +139,7 @@ class ElevenLabsEffects:
     sample_rate = 24000
     maximum_response_bytes = 1024 * 1024
 
-    def __init__(self, api_key: str, model: str = "eleven_text_to_sound_v2"):
+    def __init__(self, api_key: str, model: str = "eleven_text_to_sound_v3"):
         self._api_key, self.model = api_key, model
 
     @property
