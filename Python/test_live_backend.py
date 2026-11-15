@@ -465,6 +465,19 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "speech_text_mismatch")
         self.assertTrue(bad_socket.closed)
 
+    def test_spelling_audio_keeps_repeated_letters_and_rejects_merged_or_dropped_letters(self):
+        text = "M, O, O, N. Moon! What is it made of? Say the sentence."
+        socket = FakeSocket(spoken="M O O N. Moon! What is it made of? Say the sentence.")
+        upstream = lb.OpenAIUpstream(lb.Settings("not-a-real-key"), websocket_factory=lambda *_a, **_k: socket)
+        self.assertTrue(upstream.synthesize(text).startswith(b"RIFF"))
+        self.assertIn("including every repeated letter", socket.sent[1]["response"]["instructions"])
+        for spoken in ["Moon. Moon! What is it made of? Say the sentence.",
+                       "M O N. Moon! What is it made of? Say the sentence."]:
+            socket = FakeSocket(spoken=spoken)
+            with self.assertRaises(lb.BackendError) as raised:
+                upstream.synthesize(text)
+            self.assertEqual(raised.exception.code, "speech_text_mismatch")
+
     def test_speech_connect_setup_and_first_nonempty_audio_metrics(self):
         socket = FakeSocket()
         socket.events.insert(2, {"type": "response.output_audio.delta", "delta": ""})

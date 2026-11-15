@@ -157,7 +157,10 @@ def dialogue_reply(value, context):
     question = question.strip()
     prefix = ""
     if context["dialogueEvent"] == "word":
-        prefix = context["currentWord"].rstrip(".").capitalize() + "! "
+        # Build this from the accepted letters, not from model-generated prose.
+        # Preserve repeated letters; periods remain finish markers, never spoken letters.
+        letters = re.findall(r"[A-Z]", context["currentWord"].upper())
+        prefix = ", ".join(letters) + ". " + context["currentWord"].rstrip(".").capitalize() + "! "
     directive = "Build the word." if next_input == "build_word" else "Say the sentence."
     spoken = prefix + question + " " + directive
     return {"question": question, "nextInput": next_input, "text": spoken, "spokenText": spoken, "turnId": context["turnId"]}

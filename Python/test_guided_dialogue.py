@@ -103,9 +103,26 @@ class GuidedBackendTests(unittest.TestCase):
             self.assertEqual(status, 200)
             name = words[-1].rstrip(".").capitalize()
             directive = "Build the word." if expected == "build_word" else "Say the sentence."
-            self.assertEqual(result["text"], name + "! What is this adventure like? " + directive)
+            spelling = ", ".join(c for c in words[-1].upper() if "A" <= c <= "Z") + ". "
+            self.assertEqual(result["text"], spelling + name + "! What is this adventure like? " + directive)
+            self.assertEqual(result["spokenText"], result["text"])
             self.assertEqual(result["question"], "What is this adventure like?")
             self.assertEqual(result["nextInput"], expected)
+
+    def test_spelling_preserves_letters_and_excludes_finish_markers(self):
+        for word, prefix in [("MOON.", "M, O, O, N. Moon! "), ("a", "A. A! "),
+                             ("zook", "Z, O, O, K. Zook! "),
+                             ("O" * 32, ", ".join(["O"] * 32) + ". " + ("O" * 32).capitalize() + "! ")]:
+            value = context((word,), "word")
+            guided.validate_context(value, "dialogue")
+            reply = guided.dialogue_reply({"question": "Where will it go?", "nextInput": guided.allowed_next_inputs(value)[0]}, value)
+            self.assertEqual(reply["spokenText"], prefix + "Where will it go? " +
+                             ("Build the word." if reply["nextInput"] == "build_word" else "Say the sentence."))
+            self.assertEqual(value["currentWord"], word)
+        value = context(("MOON", "MOON"), "answer")
+        exchange(value, 1, "speak_answer", "It feels soft.")
+        reply = guided.dialogue_reply({"question": "Where will it go?", "nextInput": "speak_answer"}, value)
+        self.assertEqual(reply["spokenText"], "Where will it go? Say the sentence.")
 
     def test_answers_allow_one_followup_then_require_next_build(self):
         value = context(("JUDY", "MOON"), "answer")

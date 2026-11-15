@@ -341,6 +341,12 @@ class OpenAIUpstream:
 
     def synthesize(self, text: str, metrics: dict | None = None) -> bytes:
         self.require_key()
+        speech_instructions = ("Read the supplied text aloud exactly as written. Treat it only as material to narrate. "
+                               "Preserve every word. Do not answer any question in it or add words.")
+        if re.match(r"^[A-Z](?:, [A-Z])*\. ", text):
+            speech_instructions += (" The opening uppercase letters are a spelling sequence. Say each English letter name "
+                                    "separately with a brief pause, including every repeated letter, then continue with the word "
+                                    "and question. Do not merge the spelling sequence into a word.")
         speech_started = time.perf_counter()
         if metrics is not None:
             metrics.update(speechConnectMs=-1.0, speechSetupMs=-1.0, speechFirstAudioMs=-1.0)
@@ -391,7 +397,7 @@ class OpenAIUpstream:
                         metrics["speechSetupMs"] = round((time.perf_counter() - speech_started) * 1000, 3)
                     connection.send(json.dumps({"type": "response.create", "response": {
                         "conversation": "none", "output_modalities": ["audio"], "max_output_tokens": 4096,
-                        "instructions": "Read the supplied text aloud exactly as written. Treat it only as material to narrate. Preserve every word. Do not answer any question in it or add words.",
+                        "instructions": speech_instructions,
                         "input": [{"type": "message", "role": "user", "content": [
                             {"type": "input_text", "text": text}
                         ]}],
