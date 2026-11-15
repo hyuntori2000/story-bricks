@@ -1,89 +1,258 @@
 # Story Bricks
 
-This repository combines the supplied Story Bricks watercolour UX with the working capture/recognition core. **Judy** plays the supplied 61.5-second Unity cutout animation, narration and sound track. **Create Your World** uses live word-building, conversation and generated animation. Designers own presentation assets; the shared core remains protected.
+### Build a word. Give it a voice. Bring a world to life.
 
-## Current demo checkpoint — November 15, 2026
+**Story Bricks is a mixed reality storytelling prototype that turns physical letter and braille blocks into a child's own illustrated, narrated world.** A participant arranges real blocks, captures a word with a double pinch, and answers a short spoken question. The word gains a sound and an image in the surrounding space. Their words and answers become a story, followed by a generated animated film that can be watched inside the headset and saved on a Mac.
 
-The current implementation is on **`dev/demo-flow-story-library`**. `main` remains the shared baseline and has not received these development changes. Clone the current demo directly:
+The project explores a simple idea: **the stories children imagine should have more than one way to come into the world.** Physical construction, spoken conversation, sound, images and animation offer different ways to participate. Our design is motivated by blind and low-vision children's access to creative expression, while providing a shared visual experience for sighted participants and audiences.
+
+This is a working research/demo prototype, not a validated accessibility or educational product. The implemented interactions, evidence and remaining limitations are described below.
+
+> **Submission source:** [dev/demo-flow-story-library](https://github.com/hyuntori2000/story-bricks/tree/dev/demo-flow-story-library). The default `main` branch remains an earlier shared baseline. The tested application source is preserved by the [story-bricks-demo-2026-11-15 checkpoint](https://github.com/hyuntori2000/story-bricks/tree/story-bricks-demo-2026-11-15); subsequent README updates do not change that checkpoint.
+
+## Contents
+
+- [The experience](#the-experience)
+- [What makes Story Bricks distinctive](#what-makes-story-bricks-distinctive)
+- [Interaction and accessibility design](#interaction-and-accessibility-design)
+- [From camera capture to a recognized word](#from-camera-capture-to-a-recognized-word)
+- [From a word to a world](#from-a-word-to-a-world)
+- [System architecture](#system-architecture)
+- [Run the project](#run-the-project)
+- [Demo walkthrough](#demo-walkthrough)
+- [Storage and data handling](#storage-and-data-handling)
+- [Implementation status and limitations](#implementation-status-and-limitations)
+- [Team workflow and credits](#team-workflow-and-credits)
+
+## The experience
+
+The landing screen offers three routes with different purposes.
+
+| Route | What the participant does | What the application does |
+| --- | --- | --- |
+| **Judy's Story** | Watches an authored example of the experience. | Plays the supplied 61.5-second Unity cutout story with narration, subtitles and effects, then offers replay or entry into Create Your World. |
+| **Create Your World** | Builds real words and contributes spoken ideas. | Captures and recognizes blocks, guides a conversation, generates word media, narrates a story, and produces a two-scene film. |
+| **See previous story** | Selects an already completed story film. | Loads the Mac's saved library and replays the selected film in VR without generating it again. |
+
+Judy provides a consistent presentation for an audience; Create Your World demonstrates the live system with the participant's own words. These routes have separate behavior: Judy does not submit recognition requests, record answers or run the live generation pipeline. Switching into Create Your World stops the authored playback.
+
+### A typical live session
+
+1. The opening animation and chime introduce Story Bricks. A narrator says, **“Are you ready for the new worlds? pinch twice!”**
+2. A fresh double pinch enters Create Your World without requiring the participant to point at a menu button.
+3. The participant arranges a word in one aligned row, points their capture gesture over the blocks, and pinches twice. A yellow target appears. The application waits three seconds before taking the photo.
+4. The saved target crop goes to the local recognition service. When a word is accepted, its letters are spoken before the question: for example, **“M, O, O, N. Moon!”**
+5. The narrator asks a short question about the first word. After the narration and ready tone, the participant answers aloud.
+6. The conversation invites a related second word. That word receives spelling and a brief closing, followed by the invitation to keep building or select **Create Story**. Further words start another pair; there is no automatic three- or four-word ending.
+7. **Create Story** uses the accepted words and saved spoken contributions. The narrator reads the resulting story, then announces that animation will be made.
+8. The completed film plays in VR, is saved on the Mac, and opens there for preview. It can later be selected through **See previous story**.
+
+Word images and effects arrive independently during this flow. The conversation does not have to wait for every picture to finish generating.
+
+## What makes Story Bricks distinctive
+
+| Design choice | Why it matters | Current implementation |
+| --- | --- | --- |
+| **Physical construction as creative input** | The participant starts by making something tangible, rather than typing a prompt. | Real block arrangements are photographed and converted into word events. |
+| **Spoken contributions shape the story** | The child's answer adds meaning beyond the recognized word alone. | Saved answers and accepted words are included in the story request. |
+| **Multiple ways to perceive the same idea** | A word can be explored through touch, spelling, speech, sound and imagery. | Spoken spelling, guided dialogue, word effects, spatial image planes and film playback. |
+| **Two recognition methods on the same capture** | OCR and six-dot reading can succeed under different conditions. | Concurrent readers; the first accepted complete word is used, while both outcomes are logged. |
+| **Useful work continues while media is generated** | Generative media has variable latency; one slow service should not hold up every interaction. | Separate dialogue, sound, image and video jobs with scoped request identities. |
+| **A visible connection between an object and its media** | The result stays associated with the place where the participant made the word. | A captured word anchor owns its image plane and sound; sound playback animates the box. |
+| **An experience that produces a keepsake** | The session creates an artifact that can be revisited after the live interaction. | Session archives, completed MP4 files, Mac preview and a VR story library. |
+| **Design and engineering can develop independently** | Designers can improve the presentation without rewriting recognition and dialogue. | Designer-owned Unity assets and shared component/event interfaces. |
+
+These are implemented design properties, not claims of measured learning gains, universal recognition accuracy or proven accessibility outcomes.
+
+## Interaction and accessibility design
+
+Story Bricks uses hand interaction and narration as central inputs. The Quest build is configured for **Hands Only**, with both hand inputs enabled and high-frequency tracking. Controllers are not required for the application flow.
+
+- **Gesture entry:** after the opening invitation, double pinching can enter Create Your World directly.
+- **Time to clear the capture:** a three-second delay follows the capture gesture so hands can move away from the blocks.
+- **Spelling before conversation:** accepted words are spelled aloud, preserving repeated letters. A trailing period is a control signal and is not spelled as part of the word.
+- **Clear speaking turns:** narration finishes before microphone capture begins, and a ready tone marks when to answer.
+- **More than color feedback:** the scene includes colored capture states, but also uses spoken guidance and audio cues.
+- **Independent story controls:** small **Home** and **Create Story** buttons sit high on the left and are intended to activate with a single pinch.
+
+**Home** clears the active words and returns to the landing screen, preserving archived media. **Create Story** starts the story from saved progress and continues into animation; it does not end the experience. Unfinished speech is not included if the button is pressed before an answer is saved.
+
+A recognized `.` is a separate conversational ending. It waits for the current answer and preceding queued words, asks one final question, and saves that spoken answer before creating the story. It does not act as Home. A period before any word cannot produce an empty story.
+
+The current prototype still requires help with headset setup, permissions, block alignment and recovery from system tracking loss. The visually positioned Home and Create Story controls are also a remaining accessibility consideration. Evaluation with intended users is needed before claiming independent use.
+
+## From camera capture to a recognized word
+
+### Capture the intended region
+
+The capture gesture fixes a target over the tabletop. The target is yellow before capture and blue after the photo is acknowledged. Two seconds later, the outline becomes invisible. The image plane and word anchor can remain at that location.
+
+Recognition uses the **saved target crop**, rather than the entire passthrough view. The system retains the original photo, valid crop and metadata for diagnosis, including unsuccessful recognition attempts. The current test arrangement is **one aligned row with printed label ends facing the participant**; touching blocks are allowed, but reliable segmentation is still required.
+
+### Run OCR and braille reading concurrently
+
+The local Python receiver uses the pinned [LEGO_OCR](https://github.com/wogur110/LEGO_OCR) source recorded in [Config/recognition-source.json](Config/recognition-source.json).
+
+```mermaid
+flowchart LR
+    A[Physical blocks] --> B[Double pinch and 3-second wait]
+    B --> C[Photo and saved target crop]
+    C --> D[Printed-label OCR]
+    C --> E[Six-dot reader]
+    D --> F{Any accepted complete word?}
+    E --> F
+    F -->|Yes| G[First accepted result to Unity]
+    F -->|Both fail| H[Request another capture]
+    D --> I[Save result and elapsed time]
+    E --> I
+```
+
+The first complete accepted result is returned to Unity. A fast failure waits for the other reader; a later success never replaces an already selected word. This is a **first-success experiment**, not a consensus vote, so disagreement is retained for review.
+
+The primary upstream OCR and braille readers remain intact. The integration adds a bounded English OCR retry only after the primary OCR path rejects the word. Where faces are known, the retry must cover the faces in order and agree with already accepted characters. OCR confidence remains at **0.85** for every character and line. There is no dictionary-based correction that forces a likely word such as FOX.
+
+The application accepts English letters and period markers. A period adapter can propose a region from a confidently aligned label row and pass the original pixels to the upstream period detector; it does not invent a dot from an empty crop.
+
+### Make failures inspectable
+
+The capture monitor at **http://127.0.0.1:8769/** shows capture information and a plain recognition-history table: selected reader, both outputs, failure reasons, elapsed times and disagreement. The slower reader still finishes and is recorded. History persists across receiver restarts.
+
+These timings measure recognition processing, not end-to-end capture latency: the three-second timer and network upload are excluded. Captured samples support debugging; they do not establish a general recognition-accuracy percentage.
+
+## From a word to a world
+
+### Dialogue and narration
+
+The live flow uses OpenAI-backed text, transcription and speech services through the Mac backend. Short word pairs keep the demonstration manageable while allowing more words to be added. Questions and final story content use actual saved contributions rather than the designer prototype's simulated answers.
+
+The final story is requested as **seven English sentences**. That is the intended output contract; generated language still requires review. A separate announcement precedes narration, and animation starts only after story narration finishes.
+
+### Sounds attached to words
+
+ElevenLabs generates an effect from the recognized word, independently of the dialogue. Concrete sound sources receive concrete descriptions: a cat meowing or a few acoustic piano notes. People and quiet objects without an inherent sound request a brief, quiet non-vocal hum rather than invented speech or activity.
+
+Effects play as soon as they are ready at **70% of the previous effect gain**, with narration volume unchanged. The word box wobbles during playback. Bounded leveling improves weak audible output without deliberately boosting quiet-subject hums. Provider output quality can still vary.
+
+### Images at the captured location
+
+The supplied Comfy Cloud card workflow creates a PNG for each recognized word other than a standalone period. Unity displays it on a plane inclined **65°** from the tabletop. The placeholder plane is transparent; the generated image preserves its own aspect ratio and alpha channel.
+
+When an image is displayed, the application requests one replay of that word's existing sound. It waits for a still-preparing or currently playing effect, rather than making another sound-generation request.
+
+### A two-scene animated film
+
+After narration and the animation invitation, the Mac validates the requested story against its saved successful story output. The seven sentences are divided chronologically into **two scenes**, covering sentences 1–4 and 5–7.
+
+The supplied Comfy workflow uses **Seedance 2.5 Draft**, 480p, 16:9, with each shot lasting 6–10 seconds. It uses the story's saved word-card images as references; at least one usable card is required. Both shots are submitted before waiting, then polled concurrently. Actual rendering concurrency depends on the provider.
+
+The backend combines the completed shots into an H.264/AAC MP4. The Quest downloads the movie before playing it, while the Mac saves the final file and opens a QuickTime preview. **Two minutes is a generation target, not a guaranteed completion time.** The two-scene film is a short visualization of the narrated story, not a two-minute movie.
+
+Completed films remain in the story library. Replaying a saved film does not submit new recognition or generation requests. Public upload/share links are not implemented; the saved MP4 is available for manual sharing.
+
+## System architecture
+
+```mermaid
+flowchart TB
+    subgraph Quest[Meta Quest - Unity]
+        UI[Onboarding and experience selection]
+        Capture[Hand tracking and camera capture]
+        Flow[Conversation and word anchors]
+        Playback[Spatial images, audio and video]
+        UI --> Capture --> Flow --> Playback
+    end
+    subgraph Mac[Mac - local Python services]
+        Recognition[Recognition receiver - port 8769]
+        Backend[Dialogue and media backend - port 8766]
+        Store[Session archives and story library]
+        Monitor[Capture and recognition monitor]
+        Recognition --> Monitor
+        Recognition --> Store
+        Backend --> Store
+    end
+    Capture --> Recognition
+    Recognition --> Flow
+    Flow <--> Backend
+    Backend <--> OpenAI[OpenAI - dialogue, transcription and speech]
+    Backend <--> ElevenLabs[ElevenLabs - sound effects]
+    Backend <--> Comfy[Comfy Cloud - word images and film shots]
+    Store --> Playback
+```
+
+Camera processing and recognition run on the Mac. Generative services are accessed by the backend; provider keys are not embedded in the APK. The default development connection uses USB and `adb reverse` to reach the local services.
+
+Requests carry workspace, experience, conversation, capture-group and request identities. This keeps late results associated with the experience that created them. Image and video jobs use bounded queues and persisted identities. Retrying an owned local request reuses the job; an ambiguous paid upstream submission is not silently resubmitted.
+
+The main interfaces are `/word-image`, `/story-video` and `/story-library`, with owned result paths for completed images and movies. See [runtime and implementation notes](Documentation/DEVELOPMENT_NOTES.md) and [Comfy workflow documentation](Python/workflows/comfy/README.md) for detailed behavior.
+
+## Run the project
+
+### Requirements
+
+| Component | Requirement |
+| --- | --- |
+| Headset | A compatible Meta Quest with passthrough camera access and hand tracking; the current device test used Quest 3S. |
+| Unity | **6000.3.28f1**, Android Build Support, SDK/NDK and OpenJDK. |
+| Backend | Mac with **Python 3.12**, Git, Git LFS and an internet connection for generation. |
+| Connection | USB debugging enabled and authorized on the headset. |
+| Services | Authorized OpenAI, ElevenLabs Sound Effects and Comfy Cloud access, with sufficient provider credits and workflow/model availability. |
+| Physical setup | Suitable letter/braille blocks, a stable tabletop, adequate lighting and one aligned word row. |
+
+The full live demo depends on the Mac services. Editing designer prefabs and prepared Judy media does not require live generation keys.
+
+### 1. Clone the current implementation
 
 ```sh
 git clone --branch dev/demo-flow-story-library https://github.com/hyuntori2000/story-bricks.git
-git -C story-bricks lfs install
-git -C story-bricks lfs pull
+cd story-bricks
+git lfs install
+git lfs pull
 ```
 
-The checkpoint tag **`story-bricks-demo-2026-11-15`** preserves this source version. Check out that tag in a clean checkout to inspect or rebuild it; create a new development branch before editing.
+For the fixed application source checkpoint, use the `story-bricks-demo-2026-11-15` tag in a clean checkout. Create a development branch before making changes.
 
-- The latest Quest APK built and installed successfully. The focused single-pinch input verification passed; a real Quest log confirmed **Create Story** selection and story generation. Home still needs direct device confirmation.
-- Recognition uses parallel OCR and braille with a bounded English OCR retry. These changes are experimental; the capture samples are not a general recognition-accuracy benchmark.
-- **Known image-display limitation:** a tracking-origin reset cancels pending Unity image delivery and hides old spatial anchors. The Mac can finish and archive the image, but the app does not automatically restore it. This explains the latest FOX image missing in VR even though generation succeeded. This checkpoint records the issue; it does not fix it.
-- Comfy images, two-scene story videos, speech and effects require the existing local backend configuration. External generation time and output quality vary. Review generated dialogue and story text before filming; the latest saved story included a stray non-English/self-correction fragment.
-- Secrets, captures, generated media, local environments and APKs are not part of this source checkpoint. Configure your own ignored local environment files using the setup below.
-
-Resolve or explicitly accept these demo limitations before merging into `main`.
-
-| Folder | Owner / purpose |
-| --- | --- |
-| `Assets/BrailleSoundDemo/` | Protected Unity core: capture, word anchors, conversation and media functions. |
-| `Python/` | Protected backend: local OCR, speech and API integration. |
-| `Assets/DesignerWorkspace/` | Designers: Unity scenes, UX prefabs, art and media. |
-| `Dashboard/` | Designers: their own dashboard implementation. |
-| `Design/` | Designers: storyboard and content references. |
-
-**Do not modify recognition or Demo logic for a design task.** Read [AGENTS.md](AGENTS.md). Request shared-function changes from the project owner.
-
-## Use the Unity functions
-
-Use **Unity 6000.3.28f1** with Android Build Support and **Git LFS**. Run `git lfs install` and `git lfs pull` after cloning. Open `Assets/Scenes/PhysicalStoryDemo.unity`; save a designer-owned scene copy under `Assets/DesignerWorkspace/` before adding UX.
-
-Attach **StoryFunctionBridge** to your UI and bind its public methods to your own buttons. Attach **WordMediaPresenter** to your media prefab and assign that prefab to the coordinator. Local images/audio/video work without a media dashboard. See [Component connections](Documentation/COMPONENTS.md).
-
-Create World uses the shared double-pinch capture, three-second wait and cropped-image recognition. Entering Create World plays its fixed introduction once. The short demo conversation repeats in word pairs: first word → spelling and one question → one spoken answer → invitation to build a related second word → spelling and a brief closing. The closing says **“Keep building another word, or press Create Story to make your story.”** A third word starts the next pair; no word-count limit ends the story automatically. Every newly accepted word is spelled once, including repeated letters (for example, **“M, O, O, N. Moon!”**); the trailing period is not spoken. The explicit **`build_word`** state keeps the microphone closed and consumes queued captures when ready. **`speak_answer`** opens the microphone only after the narrator finishes.
-
-Each accepted word, including the first, starts an optional sound effect using only the recognized word (no spoken-answer context). Recognizable sound sources receive concrete descriptions, such as a cat meowing or a few acoustic piano notes. Common words use a local description catalog; other words use a word-only sound-description request. People, quiet creatures and objects without an inherent sound request only a brief, very quiet non-vocal hum with a soft fade; the prompt excludes invented speech, breathing, footsteps or handling sounds for these quiet subjects. Bounded audio leveling improves weak audible effects without clipping; near-silent output is reported as unavailable. Quiet-subject hums are never boosted. Generated sound quality still depends on the provider. The effect plays from its box as soon as it is ready, including during questions, recording or story narration, at 70% of the previous effect gain. Speech volume is unchanged. Manual Create Story preserves these jobs; ending/resetting the session cancels them. Headset pause or unavailable spatial tracking pauses playback.
-
-Word images run independently through the supplied Comfy Cloud card workflow. Each recognized word (except a standalone period) starts a background job while conversation and sound generation continue. The PNG appears on that word's transparent 65° plane, keeping its aspect ratio and its own alpha channel. Before the image arrives, the plane is invisible rather than a white placeholder. Displaying the image requests one replay of the existing word effect at the same reduced volume; if the effect is still preparing or playing, the replay waits for that real clip and its first playback to finish. No second sound-generation request is made. Reset/end or invalid tracking prevents late image delivery and replay on an old anchor; completed images remain archived on the Mac.
-
-Comfy runs only on the Mac voice backend. Copy `.env.comfy.example` to ignored `.env.comfy.local` and set `COMFY_API_KEY` there, then restart `Tools/start-backend.sh`. The APK contains only local job IDs and image paths. `POST /word-image` queues work; `GET /word-image` polls the same owned request, and `/word-images/<id>.png` serves the saved image. Each experience stores image jobs and PNGs under `runtime/workspaces/create-world/sessions/<experienceSessionId>/images/`. Two workers and a bounded queue are separate from voice and effect capacity. Retried local requests reuse their IDs; ambiguous upstream submissions are never automatically sent again. Health checks and menu entry do not generate images. The supplied card graph is in `Python/workflows/comfy/card_api.json`; its image model and alpha-removal nodes are preserved. See that folder's README for provider setup and compatibility.
-
-The capture target stays yellow until its photo is acknowledged, then turns blue for two seconds before only its outline becomes invisible. A transparent 20 × 12 cm plane is created at that same position, rising 65° above the original tabletop toward the far side. The plane and sound anchor remain after the outline disappears; later recognition does not restart the two-second timer or create another plane. This presentation never changes the image crop or recognition geometry.
-
-Word boxes can still be captured during dialogue or playback and wait in the queue. Separate captures may repeat the same spelling to answer different build prompts. A recognized standalone `.` lets the current spoken answer and preceding queued words finish, then asks one final question. Its real spoken answer must be saved before the story starts. A word ending in `.` receives spelling and that final question instead of its ordinary question or closing. Duplicate period signals coalesce, and a period before any word cannot generate an empty story. There is no three/four-word automatic ending; later captures remain available for the next story. The generated story contains **exactly seven English sentences**, using the accepted words and actual saved contributions; a separate readiness announcement precedes its narration. Judy does not offer word capture, recognition, per-word cues or conversation API calls.
-
-The physical Quest app builds in **Hands Only** mode with high-frequency tracking and both hand inputs enabled. Controllers are not required. Every build reapplies hand, passthrough, camera and scene capabilities, including when opening an existing scene. Headset sleep, tracking loss or a system permission dialog can still pause tracking.
-
-The app first plays the supplied **Story Bricks opening** (braille dots, title and synthesized chime), followed by the bundled narrator line **“Are you ready for the new worlds? pinch twice!”** in the existing Marin voice. After narration, a fresh double pinch with either hand enters Create World immediately without pointing at a button, finding a table or starting a photo timer. The watercolour **selection menu** remains available at that point, with **Create Your World**, **Judy’s Story** and **See previous story** enabled. Ending a session repeats the invitation; the opening animation plays once per app launch. Onboarding pauses when the app loses focus or the headset sleeps. Selecting Create Your World connects the supplied word tags, captions and listening/progress panels to real capture and dialogue events. Adjacent **Home** and **Create Story** buttons use the supplied painted style. The imported prototype’s automatic words, recorded answers and simulated readiness timers do not run in this route.
-
-**Create Story** directly calls the story backend using accepted words (including queued captures) and only answers already saved; unfinished speech is discarded. At least one accepted word is required, but no period is needed. Story creation keeps the experience open. After narration, the narrator announces the animation and automatically starts the two-scene Comfy job. The finished movie opens in VR and is saved on the Mac, where QuickTime Player opens one preview. **Home** immediately cancels local requests/playback, clears the active words and session, and returns to the landing screen. Saved captures and movies remain on disk. Repeated Create Story presses do not submit a second running story; a failed request retains saved progress for retry. Both buttons are small and placed high on the left. Hovering does not interrupt a photo countdown or queued dialogue; an actual button pinch suppresses capture until that hand releases.
-
-The Judy flow is **select Judy’s Story → play the original 61.5-second Unity cutout story → Watch again / Create Your World / Back to menu**. Narration, subtitles and effects use the supplied timeline. The supplied 12-second MP4 is excluded. Switching routes stops Judy playback before starting the live experience; Judy does not open a microphone or submit recognition/generation requests.
-
-## Story animation
-
-Animation starts only from the current experience's `StoryNarrationCompleted` event, after the story audio has finished. `StoryOutputReady` only archives the story. The Mac backend matches the requested story text and audio path to its own successful story archive, then covers the seven sentences with exactly two chronological shots: sentences 1–4 and 5–7. Each shot lasts 6–10 seconds and uses the supplied `shot_api.json` (Seedance 2.5 Draft, 480p, 16:9). It reuses the current story's saved word-card PNGs as references and never generates replacement cards for a movie. At least one usable reference card is required.
-
-Both shots are submitted before waiting and polled concurrently; actual render concurrency depends on the Comfy account and service queue. ffmpeg then joins and normalizes them into one H.264/AAC MP4. Two minutes is a target, not a timer or guarantee. `POST /story-video` starts or rejoins the owned job, `GET /story-video` polls it, and `/story-videos/<job-id>.mp4` serves the completed movie. Existing saved films keep their original shot plans and are not regenerated by this change. Install the updated Python requirements for the bundled ffmpeg executable. Movie jobs, prompts, shot files and the final MP4 stay in the same experience's `videos/` archive, outside Git. The Mac preview opens only after the final file is saved.
-
-The Quest downloads the final movie before playing it from local storage. Headset sleep or tracking loss pauses playback and resumes it when ready; ending/resetting a session cancels local viewing without deleting archived movies. Cloud renders already submitted can finish into their original archive. Repeated local requests reuse the same job; a paid shot whose submission outcome is unknown is never automatically resubmitted. Failures remain explicit instead of playing a placeholder movie.
-
-**See previous story** opens the saved movie library from the landing menu. Choose a completed film to replay it in VR without recognition, conversation or generation requests. The Mac backend must be reachable. `GET /story-library` lists the latest completed films and refreshes `runtime/workspaces/story-library/index.json`; the MP4 files stay in `runtime/workspaces/create-world/sessions/<experienceSessionId>/videos/<jobId>/story.mp4`. Existing compatible movies are discovered from their archives, including after a backend restart. Home clears only the current viewing/session state, never this library.
-
-## Backend setup
-
-Install **Python 3.12**, then run:
+### 2. Install the backend dependencies
 
 ```sh
 python3.12 Tools/setup-team.py --backend
 ```
 
-Copy `.env.local.example` to `.env.local` and `.env.elevenlabs.example` to `.env.elevenlabs.local` on the backend machine; supply your own authorized keys. Never commit keys. In separate terminals:
+This installs the pinned recognition source under `External/LEGO_OCR`, its OCR environment and the separate voice/media environment. The video requirements include `imageio-ffmpeg`; a compatible system ffmpeg can also be used.
+
+### 3. Configure local credentials
+
+On a fresh clone, copy the templates and fill in your own authorized credentials:
+
+```sh
+cp .env.local.example .env.local
+cp .env.elevenlabs.example .env.elevenlabs.local
+cp .env.comfy.example .env.comfy.local
+```
+
+Do not overwrite an existing configured environment. These local files are ignored by Git.
+
+| File | Purpose |
+| --- | --- |
+| `.env.local` | `OPENAI_API_KEY`, text/transcription/speech model settings and narrator voice. |
+| `.env.elevenlabs.local` | `ELEVENLABS_API_KEY` and Sound Effects model; the supplied default is `eleven_text_to_sound_v3`. |
+| `.env.comfy.local` | `COMFY_API_KEY` and the Comfy Cloud base URL. |
+
+Use the committed templates as the configuration reference. Changing local settings requires restarting the backend. Do not put credentials in Unity assets, workflow exports or GitHub.
+
+### 4. Start the services
+
+In separate terminals, from the repository root:
 
 ```sh
 bash Tools/start-physical-story-receiver.sh
+```
+
+```sh
 bash Tools/start-backend.sh
 ```
 
-The existing capture monitor opens at **http://127.0.0.1:8769/**. Connect/build/install a Quest with:
+Open **http://127.0.0.1:8769/** for the capture monitor. The voice and media backend runs on port **8766**. Keep both services running during the live demo.
+
+### 5. Build and install
 
 ```sh
 bash Tools/connect-quest.sh YOUR_QUEST_SERIAL
@@ -91,55 +260,81 @@ bash Tools/build-experiences.sh
 bash Tools/install-physical-story.sh YOUR_QUEST_SERIAL
 ```
 
-These commands build the existing physical scene and load the designer-owned presentation prefab. They do not replace the rig or regenerate the saved scene. The one-time presentation importer preserves an already committed prefab on subsequent builds. See [designer presentation setup](Assets/DesignerWorkspace/StoryBricks/README.md).
+The Unity scene is `Assets/Scenes/PhysicalStoryDemo.unity`. The main Android package is **`org.braillelab.storydemo`**; the output APK is `Builds/Quest/WordsToWorldsPhysical.apk` (a retained internal filename). The separate `com.storybricks.parentui` package is the original UX prototype, not the live integrated app.
 
-Launch the main application, Android package **`org.braillelab.storydemo`**. The separate **`com.storybricks.parentui`** application is the original designer UX prototype; its scripted buttons and sample story flow are not the live Create World integration. The install script above launches the main application.
+The scripts accept `UNITY_EDITOR` and `ADB` overrides. Normal builds preserve the shared XR rig and existing scene. Wear and unlock the headset, accept required system permissions, and confirm hand tracking before beginning.
 
-The scripts support `UNITY_EDITOR` and `ADB` overrides. Designers do not need API keys to edit prefabs or prepared media. The OCR source is pinned in `Config/recognition-source.json` and installed under ignored `External/LEGO_OCR`.
+## Demo walkthrough
 
-### Parallel recognition experiment (development branch)
+A reviewer can explore the project in two stages:
 
-The receiver now defaults to `--recognition parallel`. OCR and six-dot reading run concurrently on the same saved native target crop. The first complete accepted word is returned to Unity; a fast failure waits for the other reader. Both failing requests a new photo. A later result never replaces the selected word.
+1. Select **Judy's Story** to see the authored presentation and its visual language.
+2. Select **Create Your World**, or use the spoken double-pinch entry after onboarding.
+3. Build one aligned word, capture it, and observe its spelling, question, sound and image.
+4. Answer after the ready tone, then build a related second word.
+5. Select **Create Story** after the answer is saved. Listen to the story and the animation announcement.
+6. Wait for actual video completion. Watch it in VR and check the saved Mac preview.
+7. Return to the landing screen and use **See previous story** to replay an archived film.
 
-The pinned upstream reader code, primary OCR model and braille path are unchanged. Their supplied `CombinedReader` has OCR-priority behavior, so this experiment uses a separate first-success dispatcher. Each branch uses the existing automatic full-face locator. If faces cannot be resolved, OCR uses the existing automatic printed-label path. Only when the existing OCR path rejects a word, the same native crop gets one English-model row retry using the pinned local asset in `Python/models/`. With known faces, every label must match one face in order and agree with already accepted letters or periods; missing labels cannot form a partial accepted word. The dashboard history records the reader path. OCR's threshold remains 0.85 on every character and line. Only A–Z and periods are accepted; a standalone period is an explicit final-question signal. No dictionary correction is applied.
+The audience can follow recognition results in the Mac capture monitor. Failed captures are retained for analysis; a failed recognition should prompt another capture rather than silently substituting a word.
 
-When automatic text detection omits a trailing period, the connection adapter can propose a label region from a confidently aligned letter row and pass the original color pixels to the unchanged upstream `detect_period()` function. Shape results retain their own source and diagnostics, without an invented OCR score. This fallback requires reliable row spacing; standalone periods still require a detected block face or an actual OCR detection. It does not guess a period from an empty capture.
+## Storage and data handling
 
-The existing capture monitor has a plain history table showing the winner, both results/failure reasons, both elapsed times, and disagreement. The slower reader always finishes. Elapsed time starts at receiver recognition entry and includes any previous-worker wait, crop preparation, geometry and decoding; it excludes the three-second capture timer, network upload and archive saving. `executionMs` additionally records each worker's execution time. These are latency measurements, not measured recognition accuracy.
+Each experience owns its saved artifacts. **Home resets the live experience, not the archive.**
 
-All updates append to `runtime/physical-story-captures/recognition-history.jsonl` and survive a receiver restart. The dashboard shows the latest 200 captures through `/recognition-history.json`; logs and images stay out of Git. Only one pair of readers is active at a time, so a new capture drains the previous late result before starting. Use `--recognition ocr` or `--recognition braille` for a single-reader comparison.
+| Location | Contents |
+| --- | --- |
+| `runtime/workspaces/create-world/sessions/<experience-id>/` | Session state, requests/results, audio, accepted contributions and story outputs. |
+| `.../images/` | Word-image job records and completed PNGs. |
+| `.../videos/<job-id>/` | Film job records, shot files and final `story.mp4`. |
+| `runtime/workspaces/story-library/index.json` | Index of completed films available for VR replay. |
+| `runtime/physical-story-captures/` | Default receiver capture archive and recognition history. |
+| Configured `capturedimage2026` archive | Original photos, valid target crops and metadata under the configured mode/session hierarchy. |
+| Quest `ExperienceSessions/` | Local session snapshots, generated speech and story exports. |
 
-Focused offline checks: `Python/.ocr-venv/bin/python -m unittest discover -s Python -p test_parallel_recognition.py`. Real Quest captures are still needed before recommending this experiment for `main`.
+Recognition failures are saved too. A durable Quest outbox can synchronize session snapshots after connection interruptions, but force-killing the app does not restore its previous live scene on restart.
 
-## Keep changes separate
+Local recognition does not make the entire experience offline: cloud generation sends the required text, recorded speech or reference images to the configured providers. Raw microphone recordings are transient in the application flow; transcripts, generated audio and story records can remain in the session archive. This prototype does not claim a complete child-data consent or retention-management system. API keys, captures, generated media, builds and local environments are excluded from the source repository.
 
-Owner/backend development uses `dev/core-functions` (or `dev/<task>` for a separate task). Commit and push development changes there. Keep `main` as the shared baseline; recommend merging after the relevant checks and device testing, and merge only when the owner explicitly requests it.
+## Implementation status and limitations
 
-Designers use `design/*` branches and only their three folders above. Preserve Unity `.meta` files. The repository includes English AI instructions, CODEOWNERS and a design-boundary check. Those are review controls; they are not a local filesystem lock. Do not merge core changes without the owner's review.
+The repository contains working integrations and device-tested flows, with several important boundaries for reviewers.
 
-GitHub declined enforced branch protection for this private repository on the current account plan. Review design pull requests manually before merging, and do not push design work directly to `main`.
+| Area | Evidence or current boundary |
+| --- | --- |
+| Build and install | The current application checkpoint built and installed successfully on Quest. |
+| Single-pinch story control | Focused input verification passed; a real device log recorded Create Story selection followed by story generation. Home still needs direct confirmation in the final test. |
+| Recognition | OCR/braille dispatch and the bounded English retry have focused offline coverage and real capture examples. No representative accuracy benchmark has been completed. White/mixed blocks, boundaries, pose and lighting remain important test cases. |
+| Image generation | A recent FOX image completed and was saved on the Mac; a subsequent COAT image was displayed in VR. |
+| Tracking recovery | A tracking-origin reset cancels image delivery and hides old spatial anchors. An already generated image is not automatically reattached after recovery. This caused the recent missing FOX image in VR and remains unresolved. |
+| Story language | The intended output is seven English sentences, but the latest recorded output contained a stray non-English/self-correction fragment. Generated prose still needs review. |
+| Hand tracking | The app enables both hand inputs, but cannot override Quest system sleep, lock state, permissions or loss of tracking. |
+| Generated films | Two-scene generation, local saving and playback are implemented. Render time and visual consistency depend on external services; two minutes is a target. |
+| Accessibility | Gesture and audio-first interaction choices are implemented. Independent use and benefit for blind/low-vision children have not yet been validated. |
+| Sharing | Saved movies and VR replay are implemented. Orbis integration and public video-sharing links are not connected. |
 
-Capture files, local keys, virtual environments, generated builds and temporary experiments are excluded from Git. Unity scenes are preserved during normal builds.
+For maintainers, focused offline checks include:
 
-The supplied Judy storyboard remains a content reference. Judy playback uses the authored Unity components from `story-bricks-main-2`, not a recognition-driven word-cue sequence. Create Your World uses the supplied Comfy film workflow; Orbis and public video sharing are not connected.
+```sh
+Python/.ocr-venv/bin/python -m unittest discover -s Python -p test_parallel_recognition.py
+PYTHONPATH=Python Python/.venv/bin/python -m unittest test_comfy_word_images test_comfy_story_videos
+```
 
+The Comfy tests use fake providers rather than paid generation. Passing these checks is not a substitute for headset interaction testing. Resolve or explicitly accept the remaining demo limitations before promoting this branch to `main`.
 
-## Experience storage and rollback
+## Team workflow and credits
 
-New requests carry immutable `workspaceId` (`judy` or `demo`) and `experienceSessionId`. The active UI uses `demo` for **Create World**; its Mac directory is `create-world`. The backend’s existing `judy` namespace and archived Judy data remain intact for compatibility; authored Judy playback sends no capture or API requests. Camera frame IDs and conversation IDs remain linked sub-identities. Home closes the old experience; late results stay in its archive and cannot enter the new UI.
+| Area | Ownership |
+| --- | --- |
+| `Assets/BrailleSoundDemo/` | Shared Unity capture, recognition integration, word anchors, conversation and media behavior. |
+| `Python/`, `Config/`, `Tools/` | Backend, pinned dependencies, service integration and setup/build tooling. |
+| `Assets/DesignerWorkspace/` | Designer-owned scenes, presentation prefabs, graphics and prepared media. |
+| `Dashboard/`, `Design/` | Designer dashboard work, content and storyboard references. |
 
-- Mac records: `runtime/workspaces/{judy,create-world}/sessions/<experience-id>/` contains session-state snapshots, request/results, generated audio, story results and capture state/history.
-- Photos: the existing configured `capturedimage2026` directory gains the same mode/session hierarchy, with originals, exact valid crops and metadata under `captures/`. Failed recognition remains archived; invalid crops are recorded as unavailable.
-- Quest: `ExperienceSessions/<workspace>/<experience-id>/` retains local session snapshots, generated speech and story exports. A durable outbox synchronizes snapshots to Mac and survives mode changes/offline time. Live app-state restoration after force-kill is not implemented.
-- Generated audio for owned experiences is durable; the old 64-file cache is used only by legacy unowned clients. Raw microphone recordings remain transient.
-- Old flat archives and old unowned requests remain compatible and are never guessed into a new mode. The capture monitor at port 8769 provides an explicit session selector; its unscoped view is legacy data.
+Designers connect UI through **StoryFunctionBridge** and attach media through **WordMediaPresenter** and presentation events. This allows presentation changes without editing core recognition or demo behavior. See [component connections](Documentation/COMPONENTS.md), [designer presentation setup](Assets/DesignerWorkspace/StoryBricks/README.md) and [AGENTS.md](AGENTS.md) for ownership and AI-assistant instructions.
 
-`Home` clears live objects, not saved files. Tracking reset cancels pending captures and invalidates old box positions, while retaining words/answers; old spatial presentation must not be trusted after re-localization. Centered narration can continue. Only Create Your World activates word capture, microphone recording, recognition and conversation requests. Judy playback remains independent of those word-building functions.
+Owner development uses `dev/*`; designer work uses `design/*`. Preserve Unity `.meta` files and review changes before merging. These instructions and checks are collaboration controls, not a filesystem lock. Current work is pushed to `dev/demo-flow-story-library`; `main` is not updated automatically.
 
-Current development branch: `dev/demo-flow-story-library`. To undo this dialogue, Home, library and sound update, use `rollback/pre-demo-flow-20261115` at `e7565ca`, rebuild and restart its voice backend. The earlier UX integration is on `dev/ux-integration`; supplied design content: `design/judy-ux-integration`. The earlier application is also preserved as `rollback/pre-supplied-ux-20261115` at `ad86290`. Save local edits before switching checkpoints. Archived media remain on disk.
+Story Bricks combines the team's Unity UX, Judy cutout story and Comfy workflows with the pinned **wogur110/LEGO_OCR** recognition source, Meta Quest hand/passthrough capabilities, OpenAI services and ElevenLabs effects. Bundled models and third-party assets retain their own notices; see [OCR model provenance](Python/models/README.md) and the associated asset/license files. Provider names describe integrations, not endorsement.
 
-Earlier development branch: `dev/guided-dialogue`. The pre-integration source is preserved on `rollback/pre-judy-create-world-20261114` at `4b13db6`. After committing/stashing any current edits, switch to that rollback branch and run its `Tools/build-physical-story.sh` to rebuild the previous app. Restart its Python services when reverting the backend too. Switch back to `dev/guided-dialogue` to resume the current implementation. Existing saved files are not deleted by switching branches. No change has been merged to `main`.
-
-The integration before Judy was simplified is preserved on `rollback/before-judy-video-only-20261114` at `82aa499`, also pushed to GitHub. After saving any current edits, switch to that branch to restore the previous source. The original pre-integration rollback above remains available.
-
-The working Create World integration immediately before guided dialogue is preserved on `rollback/pre-guided-dialogue-20261114` at `f099a8c`, pushed to GitHub. Use that checkpoint to return to the prior conversation behavior while keeping the menu-only UX integration. Guided-dialogue work stays on `dev/guided-dialogue`; merging into `main` still requires the owner's explicit instruction.
+Detailed runtime behavior, archive layout, earlier rollback branches and integration notes are preserved in [Development and runtime notes](Documentation/DEVELOPMENT_NOTES.md).

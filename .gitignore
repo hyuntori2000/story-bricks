@@ -39,6 +39,7 @@ Documentation/*.jpg
 Documentation/*.mp4
 Documentation/*.md
 !Documentation/COMPONENTS.md
+!Documentation/DEVELOPMENT_NOTES.md
 Python/README*.md
 !.env.elevenlabs.example
 !.env.local.example
