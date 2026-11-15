@@ -161,6 +161,15 @@ class ParallelTests(unittest.TestCase):
             self.assertEqual(response['detections'][0]['letter'], 'A')
             self.assertTrue(response['detections'][0]['accepted'])
 
+    def test_period_is_a_positive_punctuation_detection_not_an_unknown_word(self):
+        for source in ('ocr', 'braille'):
+            result = convert(payload('.'), LAYOUT, INFO, source)
+            self.assertEqual(result['status'], 'recognized')
+            self.assertEqual(result['word'], '.')
+            self.assertEqual(result['result']['cells'][0]['kind'], 'punctuation')
+            self.assertEqual(result['result']['cells'][0]['punctuation_candidate'], '.')
+            self.assertEqual(convert(payload('?', False), LAYOUT, INFO, source)['status'], 'retry_needed')
+
     def test_history_endpoint_remains_available_during_capture_lock(self):
         import json
         import urllib.request

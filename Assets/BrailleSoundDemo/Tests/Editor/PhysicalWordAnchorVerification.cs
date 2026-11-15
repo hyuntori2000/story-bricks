@@ -130,9 +130,10 @@ namespace BrailleSoundDemo.Tests
                 "An uncertain or untyped question mark remains rejected.");
             var rejectedPeriod=Face(".",320,180,kind:"punctuation");rejectedPeriod.accepted=false;
             check(!Build(m,Result(m,Face("A",240,180),rejectedPeriod),out _) &&
-                !Build(m,Result(m,Face("A",240,180),Face(".",320,180)),out _) &&
-                !Build(m,Result(m,Face(".",240,180,kind:"punctuation")),out _),
-                "A period requires explicit punctuation kind, accepted=true and at least one alphabetic block in the word.");
+                !Build(m,Result(m,Face("A",240,180),Face(".",320,180)),out _),
+                "A period requires explicit punctuation kind and accepted=true.");
+            check(Build(m,Result(m,Face(".",240,180,kind:"punctuation")),out var finish) && finish.Word==".",
+                "A single accepted period creates a finish-marker anchor without inventing a letter.");
             check(!Build(m,Result(m,Face("A",240,180),Face("#",320,180,kind:"indicator")),out _) &&
                 !Build(m,Result(m,Face("A",240,180),Face("1",320,180,kind:"number")),out _) &&
                 !Build(m,Result(m,Face("A",240,180,kind:"indicator")),out _) &&

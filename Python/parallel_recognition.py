@@ -136,7 +136,7 @@ def convert(payload, layout, info, source):
     if len(cells) != len(expected) or actual != expected:
         raise ValueError("reader_cell_count_mismatch")
     word = "".join(c.get("value") or "?" for c in cells)
-    accepted = all(c.get("accepted") is True for c in cells) and bool(re.fullmatch(r"[A-Z.]{1,32}", word)) and bool(re.search(r"[A-Z]", word))
+    accepted = all(c.get("accepted") is True for c in cells) and bool(re.fullmatch(r"[A-Z.]{1,32}", word)) and (word == "." or bool(re.search(r"[A-Z]", word)))
     keys = ("row_id", "slot_index", "value", "accepted", "reason", "bits", "mask",
             "raw_ocr_text", "raw_ocr_score", "score", "source", "estimated_source_stud_diameter_px")
     x, y = info["originInFullImage"]["x"], info["originInFullImage"]["y"]

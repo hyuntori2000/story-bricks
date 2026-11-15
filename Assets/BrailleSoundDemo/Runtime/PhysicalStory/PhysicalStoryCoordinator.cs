@@ -162,7 +162,7 @@ namespace BrailleSoundDemo.PhysicalStory
             BindStagePresenter();
             SetStatus("Ready. Double pinch above printed labels; one photo follows after 3 seconds. You can create words during conversation.");
             Debug.Log("[PhysicalStory] Recognition="+recognitionBaseUrl+" | Live speech="+LiveStoryProvider.BaseUrl+
-                " | Workspace="+workspaceId+" liveConversation="+liveConversation+"; word creation is independent of the "+Flow.StoryWordLimit+"-round story queue.");
+                " | Workspace="+workspaceId+" liveConversation="+liveConversation+"; words queue until a recognized period ends the story.");
         }
 
         void Update()
@@ -337,7 +337,9 @@ namespace BrailleSoundDemo.PhysicalStory
                 else conversationQueue.Add(anchor);
                 waitingForConversationRecapture=false;
             }
-            FinishWaiting("Created "+geometry.Word+(liveConversation?". Queued for conversation; you can capture another word.":". Prepared media is ready; no automatic conversation."));
+            FinishWaiting(PhysicalWordInputPolicy.IsStoryFinishMarker(geometry.Word) && liveConversation
+                ? "Period received. Finishing earlier answers before creating your story."
+                : "Created "+geometry.Word+(liveConversation?". Queued for conversation; capture a period when finished.":". Prepared media is ready; no automatic conversation."));
             Debug.Log("[PhysicalStory] Word="+geometry.Word+" | frame="+metadata.frameId+
                 " | captured table-plane anchor="+anchor.capturedWorldPosition.ToString("F3")+
                 " | component IDs identify selected regions in this photo, not continuously tracked physical bricks.");
@@ -392,17 +394,31 @@ namespace BrailleSoundDemo.PhysicalStory
                 var word=conversationQueue[i];
                 if(word.anchor==null || !anchorsById.ContainsKey(word.groupId))
                 { conversationQueue.RemoveAt(i--);continue; }
+                if(PhysicalWordInputPolicy.IsStoryFinishMarker(word.word))
+                {
+                    if(Flow.Record.words.Count==0)
+                    {
+                        conversationQueue.RemoveAt(i);
+                        SetStatus("Build and answer at least one word before capturing the period.");
+                    }
+                    else if(Flow.RequestStoryFinish())
+                    {
+                        conversationQueue.RemoveAt(i);
+                        SetStatus("Period accepted. Creating the story from the saved words and answers.");
+                    }
+                    return;
+                }
                 // Duplicate visuals remain valid. A repeated word can join the
                 // following story rather than blocking later distinct words.
                 if(PhysicalWordInputPolicy.IsRepeatedWord(word.word,Flow.Record.words)) continue;
                 startingConversationWord=true;
                 try
                 {
-                    if(Flow.BeginWord(round,word.groupId,word.word,round==Flow.StoryWordLimit-1,
+                    if(Flow.BeginWord(round,word.groupId,word.word,PhysicalWordInputPolicy.EndsStory(word.word),
                         word.anchor.position,word.componentIds))
                     {
                         conversationQueue.Remove(word);
-                        Debug.Log("[ConversationQueue] Started round="+(round+1)+"/"+Flow.StoryWordLimit+
+                        Debug.Log("[ConversationQueue] Started round="+(round+1)+
                             " captureIndex="+word.index+" pending="+conversationQueue.Count);
                     }
                 }

@@ -105,8 +105,8 @@ namespace BrailleSoundDemo.PhysicalStory
                 selectedFaces.Add(pixels);
             }
             string word = new string(letters);
-            if (!PhysicalWordInputPolicy.IsRecognizedWord(word))
-            { reason = "A physical word must include at least one letter A-Z."; return false; }
+            if (!PhysicalWordInputPolicy.IsRecognizedCapture(word))
+            { reason = "Capture a word containing A-Z or one period to finish the story."; return false; }
             float width = maxX - minX, depth = maxZ - minZ;
             if (!float.IsFinite(width) || !float.IsFinite(depth) || width < .001f || depth < .001f || width > 2 || depth > 2)
             { reason = "The projected word footprint is degenerate or too large."; return false; }

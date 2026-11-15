@@ -7,6 +7,9 @@ namespace BrailleSoundDemo.PhysicalStory
     public static class PhysicalWordInputPolicy
     {
         public static bool IsPunctuation(char symbol) => symbol == '.';
+        public static bool IsStoryFinishMarker(string value) => value == ".";
+        public static bool EndsStory(string value) => !string.IsNullOrEmpty(value) && value.EndsWith(".", StringComparison.Ordinal);
+        public static bool IsRecognizedCapture(string value) => IsStoryFinishMarker(value) || IsRecognizedWord(value);
 
         public static bool IsAcceptedSymbol(string value, string kind, bool accepted)
         {

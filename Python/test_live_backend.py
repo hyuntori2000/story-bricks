@@ -237,6 +237,22 @@ class BackendTests(unittest.TestCase):
             self.backend.dispatch("/story", envelope(value), "application/json")
         self.assertEqual(raised.exception.code, "finish_required")
 
+    def test_story_accepts_more_than_four_answered_words_only_after_finish(self):
+        value = context(1, 1)
+        for i, word in enumerate(('FOX', 'TREE', 'MOON', 'HOME', 'BEAR'), 1):
+            item = {"index": i, "word": word, "groupId": f"group-{i}",
+                    "componentIds": [f"letter-{i}-{n}" for n in range(len(word))], "finishMarker": False}
+            value['words'].append(item)
+            value['turns'].append({"wordIndex": i, "word": word, "groupId": item['groupId'],
+                                   "componentIds": item['componentIds'], "question": "What happens?", "answer": "It runs."})
+        value['currentWord'] = value['words'][-1]['word']
+        with self.assertRaises(lb.BackendError) as raised:
+            self.backend.dispatch('/story', envelope(value), 'application/json')
+        self.assertEqual(raised.exception.code, 'finish_required')
+        value['words'][-1]['finishMarker'] = True
+        result = self.backend.dispatch('/story', envelope(value, request='period-finished'), 'application/json')
+        self.assertEqual(result[0], 200)
+
     def test_transcription_validates_recording_and_does_not_store_raw_audio(self):
         with self.assertRaises(lb.BackendError):
             self.backend.dispatch("/transcribe?sessionId=s&requestId=r", b"not audio", "audio/wav")

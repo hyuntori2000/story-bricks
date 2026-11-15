@@ -31,7 +31,7 @@ namespace BrailleSoundDemo.Tests
         public static void Run()
         {
             checks.Clear();
-            CheckFourWordAcceptance();
+            CheckPeriodCompletion();
             CheckCueProtocol();
             CheckLocalTargetRouting();
             CheckResetCancellation();
@@ -40,51 +40,48 @@ namespace BrailleSoundDemo.Tests
             Debug.Log("TEAM_WORKSPACE_VERIFICATION_PASSED " + checks.Count);
         }
 
-        static void CheckFourWordAcceptance()
+        static void CheckPeriodCompletion()
         {
-            var root = new GameObject("Offline four-word contract verification");
+            var root = new GameObject("Offline period completion verification");
             var provider = new OfflineProvider();
             var flow = root.AddComponent<ConversationFlow>();
             try
             {
                 flow.TestFastMode = true;
                 flow.SetProviderForTesting(provider);
-                Require(flow.StoryWordLimit == 3, "The legacy CAT/RAIN/SLEEP fixture remains a three-word flow.");
+                Require(flow.StoryWordLimit == 3, "The legacy fixture remains a three-word flow.");
                 flow.ConfigurePhysicalWords(true); flow.SetSpatialReady(true);
-                Require(flow.StoryWordLimit == 4, "Physical workspaces require four words.");
-                var words = new[] { "JUDY", "FOX", "RAIN", "TREE" };
+                Require(!flow.RequestStoryFinish(), "A period cannot create an empty story.");
+                var words = new[] { "JUDY", "FOX", "RAIN", "TREE", "MOON", "HOME" };
                 for (int index = 0; index < words.Length; index++)
                 {
-                    if (index > 0)
-                    {
-                        // Seed the preceding saved turn explicitly. These are gate/acceptance
-                        // checks, not a simulated microphone or a full conversation playback.
-                        var previous = flow.Record.words[index - 1];
-                        flow.Record.turns.Add(new ConversationTurn { wordIndex = previous.index, groupId = previous.groupId,
-                            word = previous.word, componentIds = previous.componentIds, question = "Offline question", answer = "Offline saved answer" });
-                        Method(typeof(ConversationFlow), "SetState").Invoke(flow, new object[] { ConversationState.Silent, "Offline saved answer" });
-                    }
                     string group = "offline-group-" + index;
                     var ids = new string[words[index].Length];
                     for (int c = 0; c < ids.Length; c++) ids[c] = group + "-letter-" + c;
-                    Require(flow.CanComplete(index), "Accepted-answer history opens physical round " + (index + 1) + ".");
-                    if (index == 2)
-                        Require(!flow.BeginWord(index, group, words[index], true, Vector3.zero, ids) && flow.CanComplete(index),
-                            "The third word cannot be marked final, and rejection restores its input gate.");
-                    if (index == 3)
-                        Require(!flow.BeginWord(index, group, words[index], false, Vector3.zero, ids) && flow.CanComplete(index),
-                            "The fourth word requires the final-round marker.");
-                    Require(flow.BeginWord(index, group, words[index], index == 3, Vector3.zero, ids),
-                        "Physical round " + (index + 1) + " accepts its own word and component identities.");
+                    Require(flow.CanComplete(index), "Physical round " + (index + 1) + " remains available without a count-based ending.");
+                    Require(flow.BeginWord(index, group, words[index], false, Vector3.zero, ids),
+                        "Physical round " + (index + 1) + " accepts the word and grows its storage as needed.");
                     flow.StopAllCoroutines();
+                    Require(!flow.RequestStoryFinish(), "A finish request waits for the answer to round " + (index + 1) + ".");
+                    var previous = flow.Record.words[index];
+                    flow.Record.turns.Add(new ConversationTurn { wordIndex = previous.index, groupId = previous.groupId,
+                        word = previous.word, componentIds = previous.componentIds, question = "Offline question", answer = "Offline answer" });
+                    Method(typeof(ConversationFlow), "SetState").Invoke(flow, new object[] { ConversationState.Silent, "Offline saved answer" });
                 }
-                Require(flow.Record.words.Count == 4 && !flow.Record.words[2].finishMarker && flow.Record.words[3].finishMarker,
-                    "JUDY/FOX/RAIN/TREE retain four records, with only TREE final.");
-                Require(provider.stories == 0 && flow.Record.turns.Count == 3 && flow.LastStoryOutput == null,
-                    "Accepting the fourth word does not generate a story before its answer.");
-                Require(!flow.CanComplete(4), "A fifth captured anchor cannot overflow the current conversation's four rounds.");
+                Require(provider.stories == 0 && flow.Record.words.TrueForAll(w => !w.finishMarker),
+                    "Six answered words do not automatically request a story.");
+                Require(flow.CanComplete(6), "A seventh word remains possible before a period.");
+                Require(flow.RequestStoryFinish(), "A recognized standalone period requests the answered story.");
+                Require(flow.Record.words.Count == 6 && flow.Record.turns.Count == 6 && flow.Record.words[5].finishMarker,
+                    "The period marks the last saved word and does not create a seventh question.");
+                Require(!flow.RequestStoryFinish(), "Duplicate finish requests do not create another story.");
+                flow.StopAllCoroutines(); flow.ResetSession();
+                Require(flow.BeginWord(0, "trailing", "FOX.", true, Vector3.zero,
+                    new[] { "trailing-0", "trailing-1", "trailing-2", "trailing-3" }) && flow.Record.words[0].finishMarker,
+                    "A trailing period can also finish after that word's answer.");
+                flow.StopAllCoroutines();
                 Require(root.GetComponent<MicrophoneAnswerInput>() == null && !flow.IsLive,
-                    "Acceptance verification never constructs a microphone or a live API provider.");
+                    "Verification does not construct a microphone or call a live API.");
             }
             finally { UnityEngine.Object.DestroyImmediate(root); }
         }

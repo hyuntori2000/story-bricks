@@ -352,7 +352,7 @@ def _recognize_region(frame_bgr, region, started):
         return _retry("invalid_face_geometry", "The brick geometry is uncertain. Capture again.", started)
     letters = [c["value"] for c in cells]
     word = "".join(letters)
-    if not any(c["kind"] == "letter" for c in cells):
+    if not any(c["kind"] == "letter" for c in cells) and word != ".":
         return _retry("unsupported_word", "Include at least one letter in the captured word.", started)
     points = np.concatenate([np.asarray(c["face_polygon"], np.float32) for c in cells])
     minimum, maximum = points.min(axis=0), points.max(axis=0)

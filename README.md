@@ -4,7 +4,7 @@ This repository shares the working functions. The designers build their own UX a
 
 | Folder | Owner / purpose |
 | --- | --- |
-| `Assets/BrailleSoundDemo/` | Protected Unity core: capture, word anchors, four-word conversation and media functions. |
+| `Assets/BrailleSoundDemo/` | Protected Unity core: capture, word anchors, conversation and media functions. |
 | `Python/` | Protected backend: local OCR, speech and API integration. |
 | `Assets/DesignerWorkspace/` | Designers: Unity scenes, UX prefabs, art and media. |
 | `Dashboard/` | Designers: their own dashboard implementation. |
@@ -18,7 +18,7 @@ Use **Unity 6000.3.28f1** with Android Build Support and **Git LFS**. Run `git l
 
 Attach **StoryFunctionBridge** to your UI and bind its public methods to your own buttons. Attach **WordMediaPresenter** to your media prefab and assign that prefab to the coordinator. Local images/audio/video work without a media dashboard. See [Component connections](Documentation/COMPONENTS.md).
 
-Both live and prepared modes use the shared double-pinch capture, three-second wait and cropped-image OCR. Word boxes can be created during conversation/playback. Live stories use **four accepted words and four saved answers**; extra words wait for the next story. Prepared mode does not automatically call the conversation API.
+Both live and prepared modes use the shared double-pinch capture, three-second wait and cropped-image recognition. Word boxes can be created during conversation/playback. Live stories continue until a **recognized period**: a standalone `.` ends the preceding word queue without adding a question, and a word ending in `.` ends after that word's answer. Earlier queued questions and answers finish before story generation. There is no three/four-word automatic ending; later captures remain available for the next story. Prepared mode does not automatically call the conversation API.
 
 ## Backend setup
 
@@ -51,7 +51,7 @@ The scripts support `UNITY_EDITOR` and `ADB` overrides. Designers do not need AP
 
 The receiver now defaults to `--recognition parallel`. OCR and six-dot reading run concurrently on the same saved native target crop. The first complete accepted word is returned to Unity; a fast failure waits for the other reader. Both failing requests a new photo. A later result never replaces the selected word.
 
-The pinned upstream OCR and braille readers are unchanged. Their supplied `CombinedReader` has OCR-priority behavior, so this experiment uses a separate first-success dispatcher. Each branch uses the existing automatic full-face locator. If faces cannot be resolved, the OCR branch retains automatic printed-label detection with the upstream model and normalization rules; the dashboard records which path ran. OCR's upstream score threshold is 0.85. Only A–Z and periods are accepted, with at least one letter and no dictionary correction.
+The pinned upstream OCR and braille readers are unchanged. Their supplied `CombinedReader` has OCR-priority behavior, so this experiment uses a separate first-success dispatcher. Each branch uses the existing automatic full-face locator. If faces cannot be resolved, the OCR branch retains automatic printed-label detection with the upstream model and normalization rules; the dashboard records which path ran. OCR's upstream score threshold is 0.85. Only A–Z and periods are accepted; a standalone period is an explicit finish command. No dictionary correction is applied.
 
 The existing capture monitor has a plain history table showing the winner, both results/failure reasons, both elapsed times, and disagreement. The slower reader always finishes. Elapsed time starts at receiver recognition entry and includes any previous-worker wait, crop preparation, geometry and decoding; it excludes the three-second capture timer, network upload and archive saving. `executionMs` additionally records each worker's execution time. These are latency measurements, not measured recognition accuracy.
 

@@ -398,8 +398,8 @@ def validate_context(context, operation: str) -> dict:
     if not isinstance(context, dict):
         raise BackendError("invalid_context", "A structured conversation context is required.")
     words, turns = context.get("words"), context.get("turns")
-    if not isinstance(words, list) or not 1 <= len(words) <= 4 or not isinstance(turns, list):
-        raise BackendError("invalid_context", "Provide one to four ordered words and their saved turns.")
+    if not isinstance(words, list) or not words or not isinstance(turns, list):
+        raise BackendError("invalid_context", "Provide ordered words and their saved turns; a recognized period ends the story.")
     current = checked_text(context.get("currentWord"), "currentWord", 32)
     for index, word in enumerate(words):
         if not isinstance(word, dict) or word.get("index") != index:

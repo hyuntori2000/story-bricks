@@ -210,7 +210,7 @@ namespace BrailleSoundDemo
                 string group = "capture-test-" + index;
                 Vector3 position = new Vector3(.2f + index * .3f, .75f, .6f);
                 Check(flow.ExpectedWordIndex == index && flow.CanComplete(index), "Physical next-word index must follow saved turns.");
-                Check(flow.BeginWord(index, group, word, index == 2, position, LetterIds(group, word)), "Physical word " + word + " was rejected.");
+                Check(flow.BeginWord(index, group, word, false, position, LetterIds(group, word)), "Physical word " + word + " was rejected.");
                 yield return WaitFor(() => flow.State == ConversationState.Listening, "Physical question for " + word);
                 if (flow.State != ConversationState.Listening) yield break;
                 Check(flow.Record.words[index].word == word && flow.Record.words[index].groupId == group &&
@@ -218,9 +218,10 @@ namespace BrailleSoundDemo
                     "Physical word, identity and position must reach the question unchanged: " + word);
                 Check(provider.StoryCalls == storiesBeforePhysical, "Physical story must wait for the final answer.");
                 flow.SubmitMockAnswer();
-                if (index < 2) yield return WaitFor(() => flow.State == ConversationState.Silent, "Physical answer saved");
-                else yield return WaitFor(() => flow.State == ConversationState.Finished, "Physical three-word story");
+                yield return WaitFor(() => flow.State == ConversationState.Silent, "Physical answer saved");
             }
+            Check(flow.RequestStoryFinish(), "A recognized period must end the answered physical story.");
+            yield return WaitFor(() => flow.State == ConversationState.Finished, "Physical period-ended story");
             report.physicalWordsPreserved = flow.Record.completed && flow.Record.words.Count == 3 &&
                 provider.StoryCalls == storiesBeforePhysical + 1 && provider.LastStoryContext.turns.Count == 3 &&
                 provider.LastStoryContext.words[0].word == "FOX" && provider.LastStoryContext.words[1].word == "JUDY" &&

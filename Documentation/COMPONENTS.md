@@ -6,7 +6,7 @@ Add `BrailleSoundDemo.Presentation.StoryFunctionBridge` to an object in your own
 
 | Function | Behavior |
 | --- | --- |
-| `UseLiveDemo()` | Shared capture/OCR plus real conversation. Four words and four answers complete a story. |
+| `UseLiveDemo()` | Shared capture/recognition plus real conversation. A recognized period ends the story after earlier queued answers finish. |
 | `UsePreparedStory()` | Shared capture/OCR plus authored media; no automatic conversation API calls. |
 | `PlayCue(string cueKey)` | Play a named authored cue group. |
 | `EmitEvent(string eventName)` | Trigger one presentation event manually. |
@@ -14,6 +14,8 @@ Add `BrailleSoundDemo.Presentation.StoryFunctionBridge` to an object in your own
 | `ResetSession()` | Explicitly clear the current session, pending words and media. |
 
 Changing modes starts a new session. Capture remains the existing same-hand double pinch followed by a three-second wait. Words can be created while another word's dialogue is playing; the live conversation consumes accepted words from a queue. An active capture/recognition request, missing permissions or invalid tracking still prevents another simultaneous capture.
+
+There is no automatic ending after three or four words. A standalone `.` is a queue delimiter, not a question/sound word. A trailing period such as `TREE.` also finishes after that word's answer. A period before any answered word cannot generate an empty story. Prepared-story mode keeps authored cue control.
 
 ## Attach media to a box
 

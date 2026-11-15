@@ -214,7 +214,7 @@ def _read_crop(crop, selection, started):
             if cv2.intersectConvexConvex(q, other)[0] > .02 * min(cv2.contourArea(q), cv2.contourArea(other)):
                 return _retry("overlapping_labels", "Printed label boxes overlap. Move closer and capture again.", started, diagnostics)
     letters = [t["value"] for t in selected]
-    if not any(v != "." for v in letters):
+    if not any(v != "." for v in letters) and letters != ["."]:
         return _retry("unsupported_word", "Include at least one letter in the captured word.", started, diagnostics)
     _layout([t["quad"] for t in selected], (w, h))
     cells = [{"row_id": "word", "slot_index": i, "face_polygon": t["quad"].tolist(),
