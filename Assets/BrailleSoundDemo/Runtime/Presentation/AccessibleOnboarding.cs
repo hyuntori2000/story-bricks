@@ -7,6 +7,8 @@ namespace BrailleSoundDemo.Presentation
 {
     /// <summary>The existing opening, a bundled narrator prompt, then a hand-only route gesture.</summary>
     [DisallowMultipleComponent]
+    // Read route gestures after WorldCanvasHandInput (180) and the Finish input (190).
+    [DefaultExecutionOrder(200)]
     public sealed class AccessibleOnboarding : MonoBehaviour
     {
         public const string PromptText = "Are you ready for the new worlds? pinch twice!";
@@ -14,6 +16,7 @@ namespace BrailleSoundDemo.Presentation
         public bool Running { get; private set; }
         public event Action Ready;
         public event Action EnterRequested;
+        public Func<bool> RouteGestureAllowed { get; set; }
         readonly DoublePinchTimerPolicy gesture = new DoublePinchTimerPolicy();
         readonly OVRHand[] hands = new OVRHand[2];
         OVRCameraRig rig;
@@ -78,6 +81,8 @@ namespace BrailleSoundDemo.Presentation
         void Update()
         {
             if (!Running || !ReadyForPinch || paused || rig == null) return;
+            // A button pinch belongs to the UI, especially the separate Judy route.
+            if (RouteGestureAllowed != null && !RouteGestureAllowed()) { gesture.Reset(); return; }
             if (hands[0] == null) hands[0] = rig.leftHandAnchor.GetComponentInChildren<OVRHand>(true);
             if (hands[1] == null) hands[1] = rig.rightHandAnchor.GetComponentInChildren<OVRHand>(true);
             bool left = Tracked(hands[0]), right = Tracked(hands[1]);

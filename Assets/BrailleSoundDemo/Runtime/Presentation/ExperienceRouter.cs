@@ -1,10 +1,11 @@
 using System;
+using System.Collections.Generic;
 using BrailleSoundDemo.PhysicalStory;
 using UnityEngine;
 
 namespace BrailleSoundDemo.Presentation
 {
-    /// <summary>Owns the selected experience, never the shared XR/capture rig.</summary>
+    /// <summary>Connects the supplied UX to either authored Judy playback or the real Create World session.</summary>
     [DisallowMultipleComponent]
     public sealed class ExperienceRouter : MonoBehaviour
     {
@@ -13,8 +14,10 @@ namespace BrailleSoundDemo.Presentation
         GameObject viewRoot;
         WorldCanvasHandInput menuInput;
         AccessibleOnboarding onboarding;
-        string experience;
-        bool changingRoute;
+        StoryVideoPipeline videos;
+        readonly HashSet<string> displayedWords=new HashSet<string>(StringComparer.Ordinal);
+        string experience,route="",lastCaption="",lastVideoStage="idle";
+        bool changingRoute,applicationPaused,applicationFocused=true;
         public bool HasView => view != null;
 
         public static ExperienceRouter Attach(PhysicalStoryCoordinator owner, OVRCameraRig rig)
@@ -36,27 +39,40 @@ namespace BrailleSoundDemo.Presentation
                 Debug.LogError("[Experience] StoryBricks/View is missing. Run StoryBricksPresentationImport.Import before building.");
                 return;
             }
-            var root=Instantiate(prefab,rig.centerEyeAnchor,false);
-            root.name="Story Bricks experience UI";
-            viewRoot=root;
-            root.transform.localPosition=new Vector3(0,0,1.05f);
-            root.transform.localRotation=Quaternion.identity;
-            root.transform.localScale=Vector3.one*.0007f;
-            var canvas=root.GetComponentInChildren<Canvas>(true);
+            viewRoot=Instantiate(prefab,rig.centerEyeAnchor,false);
+            viewRoot.name="Story Bricks experience UI";
+            viewRoot.transform.localPosition=new Vector3(0,0,1.05f);
+            viewRoot.transform.localRotation=Quaternion.identity;
+            viewRoot.transform.localScale=Vector3.one*.0007f;
+            var canvas=viewRoot.GetComponentInChildren<Canvas>(true);
             canvas.renderMode=RenderMode.WorldSpace;
             canvas.worldCamera=rig.centerEyeAnchor.GetComponent<Camera>();
-            view=root.GetComponentInChildren<ViewerFlow>(true);
+            view=viewRoot.GetComponentInChildren<ViewerFlow>(true);
             if(view==null) throw new InvalidOperationException("Story Bricks presentation prefab has no ViewerFlow.");
-            menuInput=root.AddComponent<WorldCanvasHandInput>();
+            menuInput=viewRoot.AddComponent<WorldCanvasHandInput>();
             menuInput.Configure(canvas,rig,core);
             onboarding=gameObject.AddComponent<AccessibleOnboarding>();
             onboarding.Configure(rig);
+            onboarding.RouteGestureAllowed=()=>route=="" && !core.PresentationInputBlocked;
             onboarding.Ready+=OnOnboardingReady;
             onboarding.EnterRequested+=SelectCreateWorld;
             view.CreateWorldRequested+=SelectCreateWorld;
+            view.JudyRequested+=SelectJudy;
+            view.BackToMenuRequested+=ReturnToMenu;
+            view.ReplayRequested+=Replay;
             core.SessionEnded+=OnSessionEnded;
+            core.StatusChanged+=OnCaptureStatusChanged;
+            core.UsePresentationStatus(true);
             core.Flow.Changed+=OnFlowChanged;
             core.Flow.StoryNarrationCompleted+=OnLiveNarrationCompleted;
+            PresentationEvents.Published+=OnPresentationEvent;
+            videos=core.GetComponent<StoryVideoPipeline>();
+            if(videos!=null)
+            {
+                videos.SetPresentationTarget(view.liveVideoImage);
+                videos.PresentationChanged+=OnVideoPresentationChanged;
+            }
+            applicationFocused=Application.isFocused;
             BeginOnboarding(true);
         }
 
@@ -68,30 +84,101 @@ namespace BrailleSoundDemo.Presentation
             {
                 if(!core.BeginExperience("demo")) return;
                 onboarding.Cancel();
+                view.StopJudy();
                 core.SetPresentationInputBlocked(false);
                 viewRoot.SetActive(true);
                 menuInput.enabled=true;
-                experience=core.ExperienceSessionId;
-                // Close the imported menu. Create World keeps the existing physical
-                // capture, progress hint and Finish UI, without the prototype story screens.
+                route="demo";experience=core.ExperienceSessionId;
+                displayedWords.Clear();lastCaption="";lastVideoStage="idle";
                 view.BeginRoute("demo");
-                // This story-building introduction belongs to the newly selected experience,
-                // after the separate opening and accessibility prompt have finished.
                 bool started=core.Flow.BeginGuidedExperience();
                 core.SessionStore?.SetStage(started ? "introduction" : "error");
                 if(!started) Debug.LogError("[Experience] Could not start the guided introduction for the new experience.");
                 Debug.Log("[Experience] Selected demo session="+experience);
             }
             finally { changingRoute=false; }
+            OnFlowChanged();
         }
 
-        bool Active(string workspace)=>!changingRoute && core!=null && core.ExperienceActive &&
+        public void SelectJudy()
+        {
+            if(view==null || changingRoute) return;
+            changingRoute=true;
+            try
+            {
+                // A Judy viewing has no recognition/conversation session or API requests.
+                // Ending a live session first also invalidates every queued live callback.
+                if(core.ExperienceActive) core.EndSessionToStart();
+                onboarding.Cancel();view.StopJudy();core.ShowExperienceMenu();
+                experience=null;route="judy";displayedWords.Clear();lastCaption="";lastVideoStage="idle";
+                viewRoot.SetActive(true);menuInput.enabled=true;
+                view.BeginRoute("judy");
+                view.SetPaused(applicationPaused || !applicationFocused);
+                view.PlayJudy();
+                Debug.Log("[Experience] Selected authored Judy animation.");
+            }
+            finally { changingRoute=false; }
+        }
+
+        public void ReturnToMenu()
+        {
+            if(view==null || changingRoute) return;
+            view.StopJudy();
+            if(core.ExperienceActive) core.EndSessionToStart();
+            else BeginOnboarding(false);
+        }
+
+        public void Replay()
+        {
+            if(changingRoute || view==null) return;
+            if(route=="judy" && !core.ExperienceActive) view.PlayJudy();
+            else if(Active("demo") && videos!=null && !videos.Replay())
+                ShowCaption("Your animation is not ready to replay yet.");
+        }
+
+        bool Active(string workspace)=>!changingRoute && route==workspace && core!=null && core.ExperienceActive &&
             core.WorkspaceId==workspace && core.ExperienceSessionId==experience;
+
+        void OnPresentationEvent(PresentationEventContext context)
+        {
+            if(!Active("demo") || context.preview || context.workspaceId!="demo" || context.sessionId!=experience) return;
+            if(context.eventName=="word.accepted" && !string.IsNullOrWhiteSpace(context.word) &&
+                !string.IsNullOrEmpty(context.groupId) && displayedWords.Add(context.groupId))
+                view.ShowWord(context.word);
+        }
+
+        void ShowCaption(string message)
+        {
+            message=message ?? "";
+            if(lastCaption==message) return;
+            lastCaption=message;view.ShowCaption(message);
+        }
+
+        void OnCaptureStatusChanged(string message)
+        {
+            if(!Active("demo")) return;
+            // Questions and listening instructions retain priority while another photo is queued.
+            if(core.Flow.State==ConversationState.Ready || core.Flow.State==ConversationState.Silent ||
+                core.Flow.State==ConversationState.Error)
+            {
+                ShowCaption(message);
+                view.SetBusy(core.WaitingForRecognition);
+            }
+        }
 
         void OnFlowChanged()
         {
             if(!Active("demo")) return;
             var flow=core.Flow;
+            // Animation status is owned by the actual video job, never by a UI timer.
+            if(flow.State==ConversationState.Finished && videos!=null && videos.Stage!="idle") return;
+            bool listening=flow.State==ConversationState.PreparingAnswer || flow.State==ConversationState.Listening;
+            bool busy=flow.State==ConversationState.RequestingQuestion || flow.State==ConversationState.ReceivingAnswer ||
+                flow.State==ConversationState.RequestingStory || core.WaitingForRecognition;
+            view.SetListening(listening);view.SetBusy(busy);
+            bool showPrompt=flow.State==ConversationState.Asking || flow.State==ConversationState.PreparingAnswer ||
+                flow.State==ConversationState.Listening || flow.State==ConversationState.PromptingNextWord;
+            ShowCaption(showPrompt && !string.IsNullOrWhiteSpace(flow.CurrentPrompt) ? flow.CurrentPrompt : flow.Status);
             switch(flow.State)
             {
                 case ConversationState.Ready:
@@ -99,7 +186,9 @@ namespace BrailleSoundDemo.Presentation
                     core.SessionStore?.SetStage("building"); break;
                 case ConversationState.RequestingQuestion:
                     core.SessionStore?.SetStage("dialogue_generating"); break;
+                case ConversationState.PlayingWord:
                 case ConversationState.Asking:
+                case ConversationState.PromptingNextWord:
                     core.SessionStore?.SetStage("dialogue_playing"); break;
                 case ConversationState.PreparingAnswer:
                 case ConversationState.Listening:
@@ -114,42 +203,76 @@ namespace BrailleSoundDemo.Presentation
                     core.SessionStore?.SetStage("error"); break;
             }
         }
+
+        void OnVideoPresentationChanged(string stage,string message)
+        {
+            if(!Active("demo")) return;
+            bool stageChanged=lastVideoStage!=stage;
+            lastVideoStage=stage;
+            view.SetListening(false);
+            switch(stage)
+            {
+                case "animation_playing":
+                    view.SetBusy(false);view.ShowLiveVideo(true);lastCaption="";break;
+                case "animation_complete":
+                    view.SetBusy(false);view.ShowLiveEnd("Share your story in video!");lastCaption="";break;
+                case "animation_failed":
+                    view.SetBusy(false);view.ShowLiveVideo(false);ShowCaption(message);break;
+                default:
+                    if(stageChanged) view.ShowLiveVideo(false);
+                    view.ShowNextStage(message);view.SetBusy(true);lastCaption="";break;
+            }
+        }
+
         void OnLiveNarrationCompleted(StoryOutput output)
         {
-            if(!Active("demo") || output.experienceSessionId!=experience) return;
+            if(!Active("demo") || output==null || output.experienceSessionId!=experience) return;
             if(!core.BeginStoryVideo(output))
+            {
                 core.SessionStore?.SetStage("animation_unavailable");
+                view.SetBusy(false);ShowCaption("Your story is saved. Animation is currently unavailable.");
+            }
         }
         public void RestartSelectedExperience()
         {
-            if(Active("demo")) SelectCreateWorld();
+            if(route=="judy") view.PlayJudy();
+            else if(Active("demo")) SelectCreateWorld();
         }
         void OnSessionEnded()
         {
             experience=null;
-            BeginOnboarding(false);
+            if(!changingRoute) BeginOnboarding(false);
         }
         void BeginOnboarding(bool playOpening)
         {
-            core.ShowExperienceMenu();
-            menuInput.enabled=false;
-            viewRoot.SetActive(false);
+            route="";experience=null;displayedWords.Clear();lastCaption="";lastVideoStage="idle";
+            view.StopJudy();core.ShowExperienceMenu();
+            menuInput.enabled=false;viewRoot.SetActive(false);
             core.SetPresentationInputBlocked(true);
             onboarding.Begin(playOpening);
         }
         void OnOnboardingReady()
         {
-            if(core==null || core.ExperienceActive) return;
-            viewRoot.SetActive(true);
-            view.ShowMenu();
-            menuInput.enabled=true;
+            if(core==null || core.ExperienceActive || route=="judy") return;
+            viewRoot.SetActive(true);view.ShowMenu();menuInput.enabled=true;
             core.SetPresentationInputBlocked(false);
+        }
+        void OnApplicationPause(bool paused)
+        {
+            applicationPaused=paused;view?.SetPaused(applicationPaused || !applicationFocused);
+        }
+        void OnApplicationFocus(bool focused)
+        {
+            applicationFocused=focused;view?.SetPaused(applicationPaused || !applicationFocused);
         }
         void OnDestroy()
         {
+            PresentationEvents.Published-=OnPresentationEvent;
+            if(videos!=null) { videos.PresentationChanged-=OnVideoPresentationChanged;videos.SetPresentationTarget(null); }
             if(core!=null)
             {
-                core.SessionEnded-=OnSessionEnded;
+                core.SessionEnded-=OnSessionEnded;core.StatusChanged-=OnCaptureStatusChanged;
+                core.UsePresentationStatus(false);
                 if(core.Flow!=null)
                 {
                     core.Flow.Changed-=OnFlowChanged;
@@ -158,11 +281,13 @@ namespace BrailleSoundDemo.Presentation
             }
             if(onboarding!=null)
             {
-                onboarding.Ready-=OnOnboardingReady;
-                onboarding.EnterRequested-=SelectCreateWorld;
-                onboarding.Cancel();
+                onboarding.Ready-=OnOnboardingReady;onboarding.EnterRequested-=SelectCreateWorld;onboarding.Cancel();
             }
-            if(view!=null) view.CreateWorldRequested-=SelectCreateWorld;
+            if(view!=null)
+            {
+                view.CreateWorldRequested-=SelectCreateWorld;view.JudyRequested-=SelectJudy;
+                view.BackToMenuRequested-=ReturnToMenu;view.ReplayRequested-=Replay;view.StopJudy();
+            }
         }
     }
 }

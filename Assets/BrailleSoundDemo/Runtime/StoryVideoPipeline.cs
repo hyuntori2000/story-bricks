@@ -5,6 +5,7 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.Video;
+using UnityEngine.UI;
 
 namespace BrailleSoundDemo
 {
@@ -54,8 +55,31 @@ namespace BrailleSoundDemo
         VideoPlayer video;
         RenderTexture target;
         Material material;
+        RawImage display;
+        string savedVideoPath;
+        bool playbackRunning;
+        public string Stage { get; private set; } = "idle";
         public string Status { get; private set; }="Animation idle.";
         public event Action<string> VideoReady;
+        public event Action<string,string> PresentationChanged;
+
+        /// <summary>The authored UX may host the video; the existing world screen remains a fallback.</summary>
+        public void SetPresentationTarget(RawImage image)
+        {
+            if(display!=null && display!=image) { display.texture=null;display.enabled=false; }
+            display=image;
+            if(display!=null) { display.texture=target;display.enabled=videoVisible && CanPresent; }
+        }
+
+        /// <summary>Replay only the downloaded video belonging to this still-current experience.</summary>
+        public bool Replay()
+        {
+            if(!Current(active) || playbackRunning || string.IsNullOrEmpty(savedVideoPath) || !File.Exists(savedVideoPath)) return false;
+            ClearVideoSurface();
+            SetStatus(active,"Loading your saved animation...","animation_ready");
+            StartCoroutine(PlayVideo(active,savedVideoPath));
+            return true;
+        }
 
         void Awake() => applicationFocused=Application.isFocused;
         void Update() { if(active!=null && !Current(active)) CancelAll(); }
@@ -215,6 +239,7 @@ namespace BrailleSoundDemo
             catch(IOException) { saved=false; } catch(UnauthorizedAccessException) { saved=false; }
             if(!saved) { DeleteTemporary(job);Failed(job,"video_storage_unavailable");yield break; }
             if(!Current(job)) yield break;
+            savedVideoPath=file;
             Debug.Log("[Story video] Downloaded session="+job.identity.sessionId);
             try { VideoReady?.Invoke(file); } catch(Exception) { Debug.LogWarning("[Story video] A ready listener could not finish."); }
             if(!Current(job)) yield break;
@@ -223,18 +248,23 @@ namespace BrailleSoundDemo
 
         IEnumerator PlayVideo(Job job,string file)
         {
+            playbackRunning=true;
             while(Current(job) && !CanPresent) yield return null;
             if(!Current(job)) yield break;
             EnsurePresentation();
-            var shader=Resources.Load<Shader>("WordImageAlpha");
-            if(shader==null) { Failed(job,"video_shader_unavailable");yield break; }
-            screen=GameObject.CreatePrimitive(PrimitiveType.Quad);screen.name="Generated story animation";
-            var collider=screen.GetComponent<Collider>();if(collider!=null) DestroyOwned(collider);
-            screen.transform.SetParent(presentation.transform,false);
-            screen.transform.localScale=new Vector3(1.2f,.675f,1);
-            screen.SetActive(false);videoVisible=false;
-            material=new Material(shader) {name="Story animation screen",color=Color.white,mainTexture=Texture2D.blackTexture};
-            screen.GetComponent<MeshRenderer>().sharedMaterial=material;
+            videoVisible=false;
+            if(display==null)
+            {
+                var shader=Resources.Load<Shader>("WordImageAlpha");
+                if(shader==null) { Failed(job,"video_shader_unavailable");yield break; }
+                screen=GameObject.CreatePrimitive(PrimitiveType.Quad);screen.name="Generated story animation";
+                var collider=screen.GetComponent<Collider>();if(collider!=null) DestroyOwned(collider);
+                screen.transform.SetParent(presentation.transform,false);
+                screen.transform.localScale=new Vector3(1.2f,.675f,1);
+                screen.SetActive(false);
+                material=new Material(shader) {name="Story animation screen",color=Color.white,mainTexture=Texture2D.blackTexture};
+                screen.GetComponent<MeshRenderer>().sharedMaterial=material;
+            }
             video=presentation.AddComponent<VideoPlayer>();video.playOnAwake=false;video.isLooping=false;
             video.source=VideoSource.Url;video.url=new Uri(file).AbsoluteUri;
             video.renderMode=VideoRenderMode.RenderTexture;video.audioOutputMode=VideoAudioOutputMode.AudioSource;
@@ -251,11 +281,22 @@ namespace BrailleSoundDemo
             { Failed(job,"video_prepare_failed");yield break; }
             float aspect=video.width/(float)video.height;
             int width=Mathf.Min((int)video.width,1920),height=Mathf.Clamp(Mathf.RoundToInt(width/aspect),16,1920);
-            target=new RenderTexture(width,height,0);target.Create();video.targetTexture=target;material.mainTexture=target;
-            screen.transform.localScale=aspect>=1 ? new Vector3(1.2f,1.2f/aspect,1) : new Vector3(.9f*aspect,.9f,1);
+            target=new RenderTexture(width,height,0);target.Create();video.targetTexture=target;
+            if(material!=null) material.mainTexture=target;
+            if(screen!=null) screen.transform.localScale=aspect>=1 ? new Vector3(1.2f,1.2f/aspect,1) : new Vector3(.9f*aspect,.9f,1);
+            if(display!=null)
+            {
+                display.texture=target;
+                var fitter=display.GetComponent<AspectRatioFitter>();
+                if(fitter==null) fitter=display.gameObject.AddComponent<AspectRatioFitter>();
+                fitter.aspectMode=AspectRatioFitter.AspectMode.FitInParent;fitter.aspectRatio=aspect;
+            }
             while(Current(job) && !CanPresent) yield return null;
             if(!Current(job)) yield break;
-            videoVisible=true;screen.SetActive(true);Recenter(job);video.Play();videoPaused=false;
+            videoVisible=true;
+            if(screen!=null) screen.SetActive(true);
+            if(display!=null) display.enabled=true;
+            Recenter(job);video.Play();videoPaused=false;
             SetStatus(job,"Playing your animation.","animation_playing");
             Debug.Log("[Story video] Playing session="+job.identity.sessionId);
             double activePlaybackSeconds=0,previousTick=Time.realtimeSinceStartupAsDouble;
@@ -270,6 +311,7 @@ namespace BrailleSoundDemo
             }
             if(!Current(job)) yield break;
             if(failure!=null) { Failed(job,"video_playback_failed");yield break; }
+            playbackRunning=false;
             SetStatus(job,"Your animation is saved on the Mac. Share your story in video!","animation_complete");
             Debug.Log("[Story video] Playback complete session="+job.identity.sessionId);
         }
@@ -295,9 +337,11 @@ namespace BrailleSoundDemo
                 if(narration!=null && narration.isPlaying) { narration.Pause();voicePaused=true; }
                 if(video!=null && video.isPlaying) { video.Pause();videoPaused=true; }
                 if(screen!=null) screen.SetActive(false);
+                if(display!=null) display.enabled=false;
                 return;
             }
             if(screen!=null) { screen.SetActive(videoVisible);if(recenter && videoVisible) Recenter(active); }
+            if(display!=null) display.enabled=videoVisible;
             if(voicePaused && narration!=null) { narration.UnPause();voicePaused=false; }
             if(videoPaused && video!=null) { video.Play();videoPaused=false; }
         }
@@ -356,15 +400,18 @@ namespace BrailleSoundDemo
         void SetStatus(Job job,string text,string stage=null)
         {
             if(!Current(job)) return;
+            bool changed=Status!=text || (stage!=null && Stage!=stage);
             if(Status!=text) { Status=text;job.status?.Invoke(text); }
-            if(stage!=null && Current(job)) job.stage?.Invoke(stage);
+            if(stage!=null && Current(job)) { Stage=stage;job.stage?.Invoke(stage); }
+            if(changed && Current(job)) PresentationChanged?.Invoke(Stage,Status);
         }
         void Failed(Job job,string code)
         {
             if(!Current(job)) return;
             if(video!=null) video.Stop();if(narration!=null) narration.Stop();
-            voicePaused=false;videoPaused=false;videoVisible=false;
+            voicePaused=false;videoPaused=false;videoVisible=false;playbackRunning=false;
             if(screen!=null) screen.SetActive(false);
+            if(display!=null) display.enabled=false;
             SetStatus(job,"The animation could not finish. Your story is still saved.","animation_failed");
             Debug.LogWarning("[Story video] Unavailable code="+code);
         }
@@ -382,11 +429,20 @@ namespace BrailleSoundDemo
             if(old!=null) { old.request?.Abort(); }
             StopAllCoroutines();
             if(old!=null) { old.request?.Dispose();old.request=null;DeleteTemporary(old); }
-            if(narration!=null) narration.Stop();if(video!=null) video.Stop();
+            if(narration!=null) narration.Stop();
+            ClearVideoSurface();
+            DestroyOwned(presentation);
+            presentation=null;narration=null;videoAudio=null;
+            savedVideoPath=null;playbackRunning=false;
+            voicePaused=false;videoPaused=false;videoVisible=false;recenter=true;Status="Animation idle.";Stage="idle";
+        }
+        void ClearVideoSurface()
+        {
+            if(video!=null) { video.Stop();video.targetTexture=null; }
+            if(display!=null) { display.texture=null;display.enabled=false; }
             if(target!=null) { target.Release();DestroyOwned(target); }
-            DestroyOwned(material);DestroyOwned(presentation);
-            target=null;material=null;presentation=null;screen=null;narration=null;videoAudio=null;video=null;
-            voicePaused=false;videoPaused=false;videoVisible=false;recenter=true;Status="Animation idle.";
+            DestroyOwned(video);DestroyOwned(material);DestroyOwned(screen);
+            target=null;material=null;screen=null;video=null;videoVisible=false;videoPaused=false;
         }
         static void DestroyOwned(UnityEngine.Object item)
         { if(item==null) return;if(Application.isPlaying) Destroy(item);else DestroyImmediate(item); }

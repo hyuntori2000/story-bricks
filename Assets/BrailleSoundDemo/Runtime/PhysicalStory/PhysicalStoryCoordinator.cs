@@ -68,8 +68,11 @@ namespace BrailleSoundDemo.PhysicalStory
         public ExperienceSessionStore SessionStore { get; private set; }
         public string ExperienceSessionId => workspaceCaptureSession;
         public bool ExperienceActive => experienceActive;
+        public bool PresentationInputBlocked => presentationInputBlocked;
         public bool FinishDialogOpen => GetComponent<SessionFinishMenu>()?.DialogOpen == true;
         public event Action SessionEnded;
+        public event Action<string> StatusChanged;
+        bool presentationOwnsStatus;
         public ConversationFlow Flow { get; private set; }
         public StoryImagePipeline Images { get; private set; }
         public IReadOnlyList<PhysicalWordAnchor> Anchors => anchors;
@@ -119,6 +122,12 @@ namespace BrailleSoundDemo.PhysicalStory
             storyVideos?.CancelAll();
             CancelRecognition(); table?.CancelPinchTarget(); sender?.CancelPending("Choose an experience first");
             if(statusHint!=null) statusHint.gameObject.SetActive(false);
+        }
+
+        public void UsePresentationStatus(bool enabled)
+        {
+            presentationOwnsStatus=enabled;
+            if(enabled && statusHint!=null) statusHint.gameObject.SetActive(false);
         }
 
         public void SetPresentationInputBlocked(bool blocked)
@@ -798,11 +807,12 @@ namespace BrailleSoundDemo.PhysicalStory
             if(Status==message) return;
             Status=message; Debug.Log("[PhysicalStory] "+message);
             ShowStatusHint(message);
+            StatusChanged?.Invoke(message);
         }
 
         void ShowStatusHint(string message)
         {
-            if(!experienceActive || rig==null || rig.centerEyeAnchor==null) return;
+            if(presentationOwnsStatus || !experienceActive || rig==null || rig.centerEyeAnchor==null) return;
             if(statusHint==null)
             {
                 var root=new GameObject("Story progress hint");

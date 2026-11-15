@@ -29,6 +29,7 @@ namespace BrailleSoundDemo.Editor
             if(view.GetComponentsInChildren<Camera>(true).Length!=0 || view.GetComponentsInChildren<AudioListener>(true).Length!=0 ||
                 view.GetComponentsInChildren<OVRCameraRig>(true).Length!=0)
                 throw new InvalidOperationException("The imported view must not own an XR rig, camera, or listener.");
+            ValidateIntegratedView(view);
             SaveMenuPreview(view);
             Tests.GuidedDialogueVerification.Run();
             BuildPhysicalStoryDemo.BuildQuest();
@@ -37,6 +38,23 @@ namespace BrailleSoundDemo.Editor
         public static void Preview()
         {
             SaveMenuPreview(Resources.Load<GameObject>("StoryBricks/View"));
+        }
+
+        static void ValidateIntegratedView(GameObject prefab)
+        {
+            var view=prefab.GetComponentInChildren<ViewerFlow>(true);
+            if(view.stage==null || view.narrationClip==null || view.storySfxClip==null ||
+                Mathf.Abs(view.storyEnd-61.5f)>.05f || view.narrationClip.length<59f)
+                throw new InvalidOperationException("Judy needs the supplied 61.5-second cutout stage, narration and sound track.");
+            if(view.newStoryButton==null || view.savedStoryButton==null ||
+                view.watchAgainButton==null || view.doneButton==null || view.restartButton==null)
+                throw new InvalidOperationException("The integrated view is missing a navigation button.");
+            if(prefab.GetComponentsInChildren<UnityEngine.Video.VideoPlayer>(true).Length!=0)
+                throw new InvalidOperationException("Judy must use its authored Unity components, not the unused 12-second clip.");
+            foreach(var component in prefab.GetComponentsInChildren<Transform>(true))
+                if(GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(component.gameObject)>0)
+                    throw new InvalidOperationException("Missing presentation script on "+component.name);
+            Debug.Log("INTEGRATED_UX_ASSETS_OK Judy=61.5s cutouts; CreateWorld=live; shared rig preserved.");
         }
 
         static void SaveMenuPreview(GameObject prefab)
@@ -51,21 +69,26 @@ namespace BrailleSoundDemo.Editor
                 root.transform.rotation=Quaternion.identity;
                 root.transform.localScale=Vector3.one*.001f;
                 var view=root.GetComponentInChildren<ViewerFlow>(true);
-                foreach(var group in new[]{view.hint,view.caption,view.subtitle,view.ready,view.end,view.pulse})
+                foreach(var group in new[]{view.hint,view.caption,view.subtitle,view.ready,view.end,view.pulse,
+                    view.finish,view.fox,view.bricks,view.pinch,view.period})
                     if(group!=null) group.gameObject.SetActive(false);
+                if(view.stage!=null) view.stage.gameObject.SetActive(false);
+                if(view.tutorialButton!=null) view.tutorialButton.gameObject.SetActive(false);
                 foreach(var tag in view.tags) tag.root.gameObject.SetActive(false);
                 view.menu.gameObject.SetActive(true); view.menu.alpha=1;
                 foreach(var text in view.newStoryButton.GetComponentsInChildren<TMP_Text>(true))
-                    if(text.name=="Title") text.text="Create World"; else if(text.name=="Sub") text.text="Build your own story";
+                    if(text.name=="Title") text.text="Create Your World"; else if(text.name=="Sub") text.text="Build your own story";
                 foreach(var text in view.savedStoryButton.GetComponentsInChildren<TMP_Text>(true))
-                    if(text.name=="Title") text.text="Judy"; else if(text.name=="Sub") text.text="Coming soon";
-                view.savedStoryButton.interactable=false;
+                    if(text.name=="Title") text.text="Judy's Story"; else if(text.name=="Sub") text.text="Watch Judy's world come to life";
+                view.savedStoryButton.interactable=true;
                 var cameraObject=new GameObject("Preview camera");
                 UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(cameraObject,scene);
                 var camera=cameraObject.AddComponent<Camera>();
                 camera.scene=scene;
                 camera.transform.position=new Vector3(0,0,-1);
-                camera.orthographic=true; camera.orthographicSize=.32f;
+                camera.orthographic=true;
+                var viewport=root.GetComponent<RectTransform>().rect.size;
+                camera.orthographicSize=Mathf.Max(viewport.y,viewport.x*.75f)*.001f*.55f;
                 camera.clearFlags=CameraClearFlags.SolidColor; camera.backgroundColor=new Color(.87f,.86f,.83f);
                 target=new RenderTexture(1200,900,24); target.Create(); camera.targetTexture=target;
                 var canvas=root.GetComponent<Canvas>(); canvas.worldCamera=camera;
