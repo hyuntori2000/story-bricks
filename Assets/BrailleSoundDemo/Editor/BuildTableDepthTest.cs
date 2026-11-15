@@ -29,8 +29,8 @@ namespace BrailleSoundDemo.Editor
             MetaXRFeature.featureId
         };
 
-        [MenuItem("Word Story Demo/Table Depth Test/Create or Open")]
-        public static void Setup()
+        /// <summary>Apply the required Android features without replacing the current scene.</summary>
+        public static void ConfigureCaptureFeatures()
         {
             ValidateQuestProject();
             FeatureHelpers.RefreshFeatures(BuildTargetGroup.Android);
@@ -52,7 +52,12 @@ namespace BrailleSoundDemo.Editor
             config.enableNSCConfig = true;
             config.securityXmlPath = Path.GetFullPath("Assets/BrailleSoundDemo/Editor/CameraTestNetworkSecurity.xml");
             OVRProjectConfig.CommitProjectConfig(config);
+        }
 
+        [MenuItem("Word Story Demo/Table Depth Test/Create or Open")]
+        public static void Setup()
+        {
+            ConfigureCaptureFeatures();
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var rigPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(Core + "Prefabs/OVRCameraRig.prefab");
             if (rigPrefab == null) throw new InvalidOperationException("OVRCameraRig prefab is missing.");

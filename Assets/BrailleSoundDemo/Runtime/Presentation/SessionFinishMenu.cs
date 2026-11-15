@@ -29,7 +29,7 @@ namespace BrailleSoundDemo.Presentation
         readonly bool[] wasPressed = new bool[4], sawRelease = new bool[4];
         readonly LineRenderer[] rays = new LineRenderer[4];
         readonly OVRHand[] hands = new OVRHand[2];
-        readonly MaterialPropertyBlock colors = new MaterialPropertyBlock();
+        MaterialPropertyBlock colors;
         PhysicalStoryCoordinator coordinator;
         OVRCameraRig rig;
         Transform visualRoot, finishRoot, dialogRoot, startRoot;
@@ -72,6 +72,8 @@ namespace BrailleSoundDemo.Presentation
         void EnsureVisuals()
         {
             if (visualRoot != null || rig == null || rig.centerEyeAnchor == null) return;
+            // Native Unity objects must be created after MonoBehaviour construction.
+            colors = new MaterialPropertyBlock();
             material = new Material(Shader.Find("Unlit/Color"));
             font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             visualRoot = NewRoot("Session menu", rig.centerEyeAnchor, new Vector3(0, 0, .8f));
@@ -125,8 +127,7 @@ namespace BrailleSoundDemo.Presentation
             surface.transform.localPosition = position;
             surface.transform.localScale = new Vector3(size.x, size.y, .006f);
             var collider = surface.GetComponent<Collider>();
-            collider.enabled = false;
-            Destroy(collider);
+            if (collider != null) { collider.enabled = false; Destroy(collider); }
             var renderer = surface.GetComponent<MeshRenderer>();
             renderer.sharedMaterial = material;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;

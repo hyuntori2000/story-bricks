@@ -24,6 +24,9 @@ namespace BrailleSoundDemo.Editor
         {
             // Use the diagnostic's tested rig, permissions, depth and hand history unchanged.
             BuildDemo.Setup();
+            // These settings also generate the APK manifest. A saved scene must
+            // not skip them when the editor's default config is controllers-only.
+            BuildTableDepthTest.ConfigureCaptureFeatures();
             // This is a create-or-open operation. Never regenerate a saved,
             // designer-authored scene during a routine build.
             if(File.Exists(ScenePath))
