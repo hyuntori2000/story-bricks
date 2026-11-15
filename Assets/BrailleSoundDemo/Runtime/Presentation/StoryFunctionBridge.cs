@@ -16,7 +16,6 @@ namespace BrailleSoundDemo.Presentation
             }
         }
         public void UseLiveDemo() { var router=Core?.GetComponent<ExperienceRouter>(); if(router!=null) router.SelectCreateWorld(); else Core?.ConfigureWorkspace("demo",true); }
-        public void UsePreparedStory() { var router=Core?.GetComponent<ExperienceRouter>(); if(router!=null) router.SelectJudy(); else Core?.ConfigureWorkspace("judy",false); }
         public void PlayCue(string cueKey)=>Core?.EmitPresentationEvent("manual",null,cueKey);
         public void EmitEvent(string eventName)=>Core?.EmitPresentationEvent(eventName);
         public void StartNextStory()=>Core?.StartNextConversation();

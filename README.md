@@ -1,6 +1,6 @@
 # Words to Worlds — shared functions
 
-This repository contains the working capture/recognition core and two independently authored experiences: Judy (prepared cues) and Create World (live conversation). Designers own the presentation assets; the shared core remains protected.
+This repository contains the working capture/recognition core and the active **Create World** experience for live word-building and conversation. **Judy** is reserved for a future single prepared video of approximately 30 seconds; its current menu entry is disabled and labelled **Coming soon**. Designers own the presentation assets; the shared core remains protected.
 
 | Folder | Owner / purpose |
 | --- | --- |
@@ -18,11 +18,13 @@ Use **Unity 6000.3.28f1** with Android Build Support and **Git LFS**. Run `git l
 
 Attach **StoryFunctionBridge** to your UI and bind its public methods to your own buttons. Attach **WordMediaPresenter** to your media prefab and assign that prefab to the coordinator. Local images/audio/video work without a media dashboard. See [Component connections](Documentation/COMPONENTS.md).
 
-Both live and prepared modes use the shared double-pinch capture, three-second wait and cropped-image recognition. Word boxes can be created during conversation/playback. Live stories continue until a **recognized period**: a standalone `.` ends the preceding word queue without adding a question, and a word ending in `.` ends after that word's answer. Earlier queued questions and answers finish before story generation. There is no three/four-word automatic ending; later captures remain available for the next story. Prepared mode does not automatically call the conversation API.
+Create World uses the shared double-pinch capture, three-second wait and cropped-image recognition. Word boxes can be created during conversation/playback. Live stories continue until a **recognized period**: a standalone `.` ends the preceding word queue without adding a question, and a word ending in `.` ends after that word's answer. Earlier queued questions and answers finish before story generation. There is no three/four-word automatic ending; later captures remain available for the next story. Judy does not offer word capture, recognition, per-word cues or conversation API calls.
 
 The physical Quest app builds in **Hands Only** mode with high-frequency tracking and both hand inputs enabled. Controllers are not required. Every build reapplies hand, passthrough, camera and scene capabilities, including when opening an existing scene. Headset sleep, tracking loss or a system permission dialog can still pause tracking.
 
-The app opens into the supplied watercolour UX with **Judy** and **Create World** choices. Its small **Finish** button opens an English dialog with **Create Story**, **End Session** and **Cancel**. In Create World, Create Story calls the real story backend using accepted words (including the conversation queue) and only answers already saved; unfinished speech is discarded. In Judy it finishes queued authored cues and plays the authored final sequence without calling the conversation API. Story completion preserves the experience for the next stage; it does not return to the menu. Create World video playback is disabled until a real animation provider is integrated. At least one accepted word is required. End Session cancels local requests/playback and clears the active session back to the mode-selection menu without deleting archived captures. Cancel returns to the session. Repeated Create Story clicks cannot submit a second story while one is running; a failed manual request keeps saved progress for retry. Menu pinches do not trigger the capture gesture.
+The app opens into the supplied watercolour UX with **Create World** available and **Judy — Coming soon** disabled. Create World's existing small **Finish** button opens an English dialog with **Create Story**, **End Session** and **Cancel**. Create Story calls the real story backend using accepted words (including the conversation queue) and only answers already saved; unfinished speech is discarded. Story completion preserves the experience for the next stage; it does not return to the menu. Create World video playback is disabled until a real animation provider is integrated. At least one accepted word is required. End Session cancels local requests/playback and clears the active session back to the selection menu without deleting archived captures. Cancel returns to the session. Repeated Create Story clicks cannot submit a second story while one is running; a failed manual request keeps saved progress for retry. Menu pinches do not trigger the capture gesture.
+
+The future Judy flow is **select Judy → play one real assigned, approximately 30-second video → invite the viewer to try Create World**. This video playback and invitation flow is planned, not implemented. The placeholder does not play a sample video or start the core word-building functions.
 
 ## Backend setup
 
@@ -47,7 +49,7 @@ bash Tools/build-experiences.sh
 bash Tools/install-physical-story.sh YOUR_QUEST_SERIAL
 ```
 
-These commands build the existing physical scene and load the designer-owned presentation prefab. They do not replace the rig or regenerate the saved scene. The one-time presentation importer preserves an already committed prefab on subsequent builds. See [designer cue setup](Assets/DesignerWorkspace/StoryBricks/README.md).
+These commands build the existing physical scene and load the designer-owned presentation prefab. They do not replace the rig or regenerate the saved scene. The one-time presentation importer preserves an already committed prefab on subsequent builds. See [designer presentation setup](Assets/DesignerWorkspace/StoryBricks/README.md).
 
 The scripts support `UNITY_EDITOR` and `ADB` overrides. Designers do not need API keys to edit prefabs or prepared media. The OCR source is pinned in `Config/recognition-source.json` and installed under ignored `External/LEGO_OCR`.
 
@@ -75,12 +77,12 @@ GitHub declined enforced branch protection for this private repository on the cu
 
 Capture files, local keys, virtual environments, generated builds and temporary experiments are excluded from Git. Unity scenes are preserved during normal builds.
 
-The supplied Judy reference is **JUDY → FOX → RAIN → TREE**. The supplied UX and storyboard captions are included; actual prepared voice, effects and video still need to be assigned in JudySequence. Missing media is shown as a text preview. Automatic Orbis generation and public video sharing are not connected.
+The supplied Judy storyboard remains a historical content reference for producing the future finished video. It no longer defines an active word-cue experience. No Judy video or playback flow is supplied yet. Automatic Orbis generation and public video sharing are not connected.
 
 
 ## Experience storage and rollback
 
-New requests carry immutable `workspaceId` (`judy` or `demo`) and `experienceSessionId`. The UI calls `demo` **Create World**; its Mac directory is `create-world`. Camera frame IDs and conversation IDs remain linked sub-identities. Switching modes or End Session closes the old experience; late results stay in its archive and cannot enter the new UI.
+New requests carry immutable `workspaceId` (`judy` or `demo`) and `experienceSessionId`. The active UI uses `demo` for **Create World**; its Mac directory is `create-world`. The backend's existing `judy` namespace and archived Judy data remain intact for compatibility; the disabled Judy entry sends no capture or API requests. Camera frame IDs and conversation IDs remain linked sub-identities. End Session closes the old experience; late results stay in its archive and cannot enter the new UI.
 
 - Mac records: `runtime/workspaces/{judy,create-world}/sessions/<experience-id>/` contains session-state snapshots, request/results, generated audio, story results and capture state/history.
 - Photos: the existing configured `capturedimage2026` directory gains the same mode/session hierarchy, with originals, exact valid crops and metadata under `captures/`. Failed recognition remains archived; invalid crops are recorded as unavailable.
@@ -88,6 +90,8 @@ New requests carry immutable `workspaceId` (`judy` or `demo`) and `experienceSes
 - Generated audio for owned experiences is durable; the old 64-file cache is used only by legacy unowned clients. Raw microphone recordings remain transient.
 - Old flat archives and old unowned requests remain compatible and are never guessed into a new mode. The capture monitor at port 8769 provides an explicit session selector; its unscoped view is legacy data.
 
-`End Session` clears live objects, not saved files. Tracking reset cancels pending captures and invalidates old box positions, while retaining words/answers; old spatial presentation must not be trusted after re-localization. Judy media at invalid anchors waits for new valid anchors; centered narration can continue. Both modes share the same camera, microphone, recognition CPU and backend availability, with only the selected experience active.
+`End Session` clears live objects, not saved files. Tracking reset cancels pending captures and invalidates old box positions, while retaining words/answers; old spatial presentation must not be trusted after re-localization. Centered narration can continue. Only Create World currently activates the camera, microphone, recognition and conversation backend. The planned Judy video must remain independent of those word-building functions.
 
 Development branch: `dev/judy-create-world`. The pre-integration source is preserved on `rollback/pre-judy-create-world-20261114` at `4b13db6`. After committing/stashing any current edits, switch to that rollback branch and run its `Tools/build-physical-story.sh` to rebuild the previous app. Restart its Python services when reverting the backend too. Switch back to `dev/judy-create-world` to resume this implementation. Existing saved files are not deleted by switching branches. No change has been merged to `main`.
+
+The integration before Judy was simplified is preserved on `rollback/before-judy-video-only-20261114` at `82aa499`, also pushed to GitHub. After saving any current edits, switch to that branch to restore the previous source. The original pre-integration rollback above remains available.

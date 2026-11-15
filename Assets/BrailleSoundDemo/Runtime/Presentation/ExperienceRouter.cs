@@ -10,7 +10,6 @@ namespace BrailleSoundDemo.Presentation
     {
         PhysicalStoryCoordinator core;
         ViewerFlow view;
-        JudySequencePlayer judy;
         string experience;
         bool changingRoute;
         public bool HasView => view != null;
@@ -46,17 +45,8 @@ namespace BrailleSoundDemo.Presentation
             if(view==null) throw new InvalidOperationException("Story Bricks presentation prefab has no ViewerFlow.");
             var input=root.AddComponent<WorldCanvasHandInput>();
             input.Configure(canvas,rig,core);
-            judy=gameObject.AddComponent<JudySequencePlayer>();
-            judy.CueChanged+=OnCueChanged;
-            judy.CaptionChanged+=OnJudyCaption;
-            judy.StoryStarted+=OnJudyStoryStarted;
-            judy.StoryCompleted+=OnJudyStoryCompleted;
-            view.JudyRequested+=SelectJudy;
             view.CreateWorldRequested+=SelectCreateWorld;
-            core.PreparedStoryCreator=CreatePreparedStory;
-            core.PreparedStorySubmitted=()=>judy!=null && judy.StoryRequested;
             core.SessionEnded+=OnSessionEnded;
-            core.SpatialReferenceReset+=OnSpatialReferenceReset;
             core.Flow.Changed+=OnFlowChanged;
             core.Flow.StoryOutputReady+=OnLiveStoryReady;
             core.Flow.StoryNarrationCompleted+=OnLiveNarrationCompleted;
@@ -65,21 +55,17 @@ namespace BrailleSoundDemo.Presentation
             view.ShowMenu();
         }
 
-        public void SelectJudy()=>Select("judy");
-        public void SelectCreateWorld()=>Select("demo");
-        void Select(string workspace)
+        public void SelectCreateWorld()
         {
             if(view==null || changingRoute) return;
             changingRoute=true;
             try
             {
-                judy.Cancel();
-                if(!core.BeginExperience(workspace)) return;
+                if(!core.BeginExperience("demo")) return;
                 experience=core.ExperienceSessionId;
-                view.BeginRoute(workspace);
-                if(workspace=="judy") judy.Begin(experience);
+                view.BeginRoute("demo");
                 core.SessionStore?.SetStage("building");
-                Debug.Log("[Experience] Selected "+workspace+" session="+experience);
+                Debug.Log("[Experience] Selected demo session="+experience);
             }
             finally { changingRoute=false; }
         }
@@ -89,57 +75,8 @@ namespace BrailleSoundDemo.Presentation
 
         void OnPresentation(PresentationEventContext evt)
         {
-            if(evt==null || !Active(evt.workspaceId) || evt.sessionId!=experience) return;
-            if(evt.eventName=="word.accepted")
-            {
-                if(evt.word!=".") view.ShowWord(evt.word);
-                if(evt.workspaceId=="judy")
-                {
-                    if(evt.word==".") CreatePreparedStory();
-                    else
-                    {
-                        bool accepted=judy.AcceptWord(evt.word,evt.groupId,evt.anchor);
-                        // Recognition remains unchanged; a period closes the authored sequence
-                        // only after the accepted word's queued cue has finished.
-                        if(accepted && evt.word.EndsWith(".",StringComparison.Ordinal)) CreatePreparedStory();
-                    }
-                }
-            }
-        }
-
-        bool CreatePreparedStory()
-        {
-            if(!Active("judy") || core.SavedWordCount==0) return false;
-            return judy.CreateStory();
-        }
-
-        void OnCueChanged(string cue,string status,string word)
-        {
-            if(!Active("judy")) return;
-            core.SessionStore?.RecordCue(cue,status,word);
-        }
-        void OnJudyCaption(string text) { if(Active("judy")) view.ShowCaption(text); }
-        void OnJudyStoryStarted()
-        {
-            if(!Active("judy")) return;
-            var output=new StoryOutput { schemaVersion=3, sessionId=Guid.NewGuid().ToString("N"),
-                workspaceId="judy",experienceSessionId=experience,storyText=judy.FinalStoryText };
-            foreach(var word in core.Anchors)
-            {
-                if(!PhysicalWordInputPolicy.IsRecognizedWord(word.word)) continue;
-                output.words.Add(new WordRecord { index=output.words.Count,groupId=word.groupId,word=word.word,
-                    componentIds=word.componentIds,worldPosition=word.capturedWorldPosition,completedAt=word.captureTimestampUtc });
-            }
-            if(output.words.Count>0) output.words[output.words.Count-1].finishMarker=true;
-            core.SessionStore?.RecordStory(output);
-            core.SessionStore?.SetStage("story_playing");
-            view.ShowStoryReady(output.storyText);
-        }
-        void OnJudyStoryCompleted()
-        {
-            if(!Active("judy")) return;
-            core.SessionStore?.SetStage("next_stage");
-            view.ShowNextStage("Your story is saved.");
+            if(evt==null || evt.workspaceId!="demo" || !Active("demo") || evt.sessionId!=experience) return;
+            if(evt.eventName=="word.accepted" && evt.word!=".") view.ShowWord(evt.word);
         }
 
         void OnFlowChanged()
@@ -182,17 +119,13 @@ namespace BrailleSoundDemo.Presentation
             core.SessionStore?.SetStage("next_stage");
             view.ShowNextStage("Your story is saved.");
         }
-        void OnSpatialReferenceReset()
-        {
-            if(Active("judy")) judy.InvalidateSpatialAnchors();
-        }
         public void RestartSelectedExperience()
         {
-            if(core!=null && core.ExperienceActive) Select(core.WorkspaceId);
+            if(Active("demo")) SelectCreateWorld();
         }
         void OnSessionEnded()
         {
-            judy?.Cancel(); experience=null;
+            experience=null;
             view?.ShowMenu();
         }
         void OnDestroy()
@@ -201,8 +134,6 @@ namespace BrailleSoundDemo.Presentation
             if(core!=null)
             {
                 core.SessionEnded-=OnSessionEnded;
-                core.SpatialReferenceReset-=OnSpatialReferenceReset;
-                core.PreparedStoryCreator=null; core.PreparedStorySubmitted=null;
                 if(core.Flow!=null)
                 {
                     core.Flow.Changed-=OnFlowChanged;
@@ -210,7 +141,7 @@ namespace BrailleSoundDemo.Presentation
                     core.Flow.StoryNarrationCompleted-=OnLiveNarrationCompleted;
                 }
             }
-            judy?.Cancel();
+            if(view!=null) view.CreateWorldRequested-=SelectCreateWorld;
         }
     }
 }

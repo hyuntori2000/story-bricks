@@ -48,14 +48,10 @@ public class ViewerFlow : MonoBehaviour
     public float brailleHold = 0.6f;
     public float brailleCrossfade = 0.4f;
 
-    // Read once by the importer to seed the designer-owned Judy asset; cleared in the runtime prefab.
-    [HideInInspector] public string[] narration;
-    [HideInInspector] public int[] narrationWord;
-
     public State state;
     readonly Dictionary<CanvasGroup, Coroutine> running = new Dictionary<CanvasGroup, Coroutine>();
     readonly List<string> words = new List<string>();
-    public event Action JudyRequested, CreateWorldRequested;
+    public event Action CreateWorldRequested;
     public string WorkspaceId { get; private set; } = "";
     public bool IsMenuVisible => state == State.Menu;
     bool busy;
@@ -76,12 +72,13 @@ public class ViewerFlow : MonoBehaviour
         WorkspaceId = "";
         state = State.Menu;
         SetButtonCopy(newStoryButton, "Create World", "Build your own story");
-        SetButtonCopy(savedStoryButton, "Judy", "Bring the prepared story to life");
+        SetButtonCopy(savedStoryButton, "Judy", "Coming soon");
+        // Reserved for the finished Judy film. No capture or authored cue route is active here.
+        if(savedStoryButton!=null) savedStoryButton.interactable=false;
         Bloom(menu);
     }
 
     public void OnNewStory() { if (state == State.Menu && !pressing) StartCoroutine(Choose(newStoryButton, CreateWorldRequested)); }
-    public void OnSavedStory() { if (state == State.Menu && !pressing) StartCoroutine(Choose(savedStoryButton, JudyRequested)); }
     IEnumerator Choose(Button button, Action selected)
     {
         pressing = true;
@@ -93,8 +90,9 @@ public class ViewerFlow : MonoBehaviour
 
     public void BeginRoute(string workspaceId)
     {
+        if(workspaceId!="demo") throw new ArgumentException("Only Create World is available.",nameof(workspaceId));
         ResetAll();
-        WorkspaceId = workspaceId == "judy" ? "judy" : "demo";
+        WorkspaceId = workspaceId;
         state = State.Building;
     }
 

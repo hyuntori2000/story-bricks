@@ -2,7 +2,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using BrailleSoundDemo.Presentation;
 using UnityEditor;
 using UnityEditor.Events;
 using UnityEditor.SceneManagement;
@@ -59,7 +58,7 @@ public static class StoryBricksPresentationImport
             view.newStoryButton.onClick = new Button.ButtonClickedEvent();
             view.savedStoryButton.onClick = new Button.ButtonClickedEvent();
             UnityEventTools.AddPersistentListener(view.newStoryButton.onClick, view.OnNewStory);
-            UnityEventTools.AddPersistentListener(view.savedStoryButton.onClick, view.OnSavedStory);
+            view.savedStoryButton.interactable = false;
             for (int i = 0; i < view.tags.Length; i++)
             {
                 var button = view.tags[i].root.GetComponent<Button>();
@@ -79,12 +78,9 @@ public static class StoryBricksPresentationImport
             if (root.GetComponentsInChildren<Camera>(true).Length != 0 || root.GetComponentsInChildren<AudioListener>(true).Length != 0 ||
                 root.GetComponentsInChildren<UnityEngine.EventSystems.EventSystem>(true).Length != 0)
                 throw new InvalidOperationException("Presentation extraction unexpectedly included scene services.");
-            CreateDefaultSequence(view);
-            view.narration = Array.Empty<string>();
-            view.narrationWord = Array.Empty<int>();
             PrefabUtility.SaveAsPrefabAsset(root, Output + "/View.prefab");
             AssetDatabase.SaveAssets();
-            Debug.Log("[StoryBricksImport] Imported latest watercolour UI and four editable Judy cues. Source rigs/settings were excluded; no prepared voice/video was supplied.");
+            Debug.Log("[StoryBricksImport] Imported latest watercolour UI. Judy remains an empty, disabled placeholder. Source rigs/settings were excluded.");
         }
         finally
         {
@@ -100,24 +96,5 @@ public static class StoryBricksPresentationImport
         if (File.Exists(source + ".meta")) File.Copy(source + ".meta", destination + ".meta", true);
     }
 
-    static void CreateDefaultSequence(ViewerFlow view)
-    {
-        string path = Output + "/JudySequence.asset";
-        if (AssetDatabase.LoadAssetAtPath<JudyCueSequence>(path) != null) return;
-        var sequence = ScriptableObject.CreateInstance<JudyCueSequence>();
-        string[] words = { "JUDY", "FOX", "RAIN", "TREE" };
-        sequence.words = new JudyWordCue[words.Length];
-        for (int i = 0; i < words.Length; i++)
-        {
-            int index = i;
-            var captions = (view.narration ?? Array.Empty<string>()).Where((_, n) =>
-                view.narrationWord != null && n < view.narrationWord.Length && view.narrationWord[n] == index);
-            sequence.words[i] = new JudyWordCue { id = "judy-" + words[i].ToLowerInvariant(), expectedWord = words[i],
-                steps = new[] { new JudyMediaStep { id = "word-presentation", caption = string.Join(" ", captions) } } };
-        }
-        sequence.finalStoryText = string.Join(" ", view.narration ?? Array.Empty<string>());
-        sequence.finalStory = new[] { new JudyMediaStep { id = "prepared-story", caption = sequence.finalStoryText } };
-        AssetDatabase.CreateAsset(sequence, path);
-    }
 }
 #endif

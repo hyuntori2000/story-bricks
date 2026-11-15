@@ -4,7 +4,6 @@ using UnityEditor.SceneManagement;
 using TMPro;
 using UnityEditor;
 using UnityEngine;
-using BrailleSoundDemo.Presentation;
 
 namespace BrailleSoundDemo.Editor
 {
@@ -16,8 +15,7 @@ namespace BrailleSoundDemo.Editor
             StoryBricksPresentationImport.Import();
             if(TMP_Settings.instance==null) throw new InvalidOperationException("Imported UX requires Resources/TMP Settings.asset.");
             var view=Resources.Load<GameObject>("StoryBricks/View");
-            var sequence=Resources.Load<JudyCueSequence>("StoryBricks/JudySequence");
-            if(view==null || view.GetComponentInChildren<ViewerFlow>(true)==null || sequence==null)
+            if(view==null || view.GetComponentInChildren<ViewerFlow>(true)==null)
                 throw new InvalidOperationException("Judy/Create World presentation assets are missing.");
             if(view.GetComponentsInChildren<Camera>(true).Length!=0 || view.GetComponentsInChildren<AudioListener>(true).Length!=0 ||
                 view.GetComponentsInChildren<OVRCameraRig>(true).Length!=0)
@@ -50,7 +48,8 @@ namespace BrailleSoundDemo.Editor
                 foreach(var text in view.newStoryButton.GetComponentsInChildren<TMP_Text>(true))
                     if(text.name=="Title") text.text="Create World"; else if(text.name=="Sub") text.text="Build your own story";
                 foreach(var text in view.savedStoryButton.GetComponentsInChildren<TMP_Text>(true))
-                    if(text.name=="Title") text.text="Judy"; else if(text.name=="Sub") text.text="Bring the prepared story to life";
+                    if(text.name=="Title") text.text="Judy"; else if(text.name=="Sub") text.text="Coming soon";
+                view.savedStoryButton.interactable=false;
                 var cameraObject=new GameObject("Preview camera");
                 UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(cameraObject,scene);
                 var camera=cameraObject.AddComponent<Camera>();

@@ -66,8 +66,6 @@ namespace BrailleSoundDemo.Presentation
         {
             get
             {
-                if(coordinator!=null && !coordinator.LiveConversationEnabled)
-                    return coordinator.PreparedStorySubmitted?.Invoke()==true;
                 var flow = coordinator?.Flow;
                 return flow == null || flow.StoryFinishRequested || flow.State == ConversationState.RequestingStory ||
                     flow.State == ConversationState.Story || flow.State == ConversationState.Finished;

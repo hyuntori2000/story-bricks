@@ -68,10 +68,7 @@ namespace BrailleSoundDemo.PhysicalStory
         public string ExperienceSessionId => workspaceCaptureSession;
         public bool ExperienceActive => experienceActive;
         public bool FinishDialogOpen => GetComponent<SessionFinishMenu>()?.DialogOpen == true;
-        public Func<bool> PreparedStoryCreator { get; set; }
-        public Func<bool> PreparedStorySubmitted { get; set; }
         public event Action SessionEnded;
-        public event Action SpatialReferenceReset;
         public ConversationFlow Flow { get; private set; }
         public StoryImagePipeline Images { get; private set; }
         public IReadOnlyList<PhysicalWordAnchor> Anchors => anchors;
@@ -94,7 +91,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         public void ConfigureWorkspace(string id,bool enableLiveConversation,WordMediaPresenter presenterPrefab=null)
         {
-            if(id!="demo" && id!="judy") throw new ArgumentException("Workspace must be demo or judy.",nameof(id));
+            if(id!="demo") throw new ArgumentException("Capture is available only in Create World.",nameof(id));
             bool changed=workspaceId!=id || liveConversation!=enableLiveConversation ||
                 (presenterPrefab!=null && mediaPresenterPrefab!=presenterPrefab);
             workspaceId=id; liveConversation=enableLiveConversation;
@@ -105,7 +102,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         public bool BeginExperience(string id)
         {
-            if(!initialized || (id!="judy" && id!="demo")) return false;
+            if(!initialized || id!="demo") return false;
             experienceActive=true;
             workspaceId=id; liveConversation=id=="demo";
             ApplyPhysicalPresentation();
@@ -491,7 +488,7 @@ namespace BrailleSoundDemo.PhysicalStory
         void OnQuestionStarted(WordRecord word) => EmitPresentationEvent("question.started",word?.groupId);
         void OnAnswerSaved(ConversationTurn answer) => EmitPresentationEvent("answer.saved",answer?.groupId);
 
-        /// <summary>Manual Judy cues and external video completion use the same presentation events.</summary>
+        /// <summary>Shared word media and external completion events use the same presentation interface.</summary>
         public void EmitPresentationEvent(string stage,string groupId=null,string cueId=null)
         {
             if(!initialized || string.IsNullOrEmpty(stage)) return;
@@ -603,7 +600,6 @@ namespace BrailleSoundDemo.PhysicalStory
                 var source=word.anchor.GetComponent<WordSoundAttachment>()?.Source;
                 if(source!=null) { source.Stop(); source.spatialBlend=0; source.spatialize=false; }
             }
-            SpatialReferenceReset?.Invoke();
             if(experienceActive) SetStatus("Tracking changed. Saved words and answers are kept; reacquire the table for new captures.");
             Debug.Log("[PhysicalStory] Preserved experience after tracking reset: "+reason);
         }
@@ -622,7 +618,7 @@ namespace BrailleSoundDemo.PhysicalStory
         public bool CreateStoryFromSavedProgress()
         {
             if(!initialized || !experienceActive || Flow==null || SavedWordCount==0) return false;
-            if(!liveConversation) return PreparedStoryCreator?.Invoke()==true;
+            if(!liveConversation) return false;
             var queued=new List<WordRecord>();
             foreach(var word in liveConversation ? conversationQueue : anchors)
                 if(word.anchor!=null && PhysicalWordInputPolicy.IsRecognizedWord(word.word))

@@ -29,6 +29,7 @@ namespace BrailleSoundDemo
         public bool ended;
         public List<ExperienceCaptureRecord> captures = new List<ExperienceCaptureRecord>();
         public List<ExperienceWordRecord> words = new List<ExperienceWordRecord>();
+        // Retained only to read and synchronize archived snapshots from the former Judy cue mode.
         public List<ExperienceCueRecord> cues = new List<ExperienceCueRecord>();
         public ConversationRecord conversation;
         public StoryOutput story;
@@ -96,13 +97,6 @@ namespace BrailleSoundDemo
         {
             if (!CanChange || current.state.words.Exists(value => value.groupId == groupId)) return;
             current.state.words.Add(new ExperienceWordRecord { groupId = groupId, word = word, index = index, frameId = frameId });
-            Persist();
-        }
-        public void RecordCue(string cueId, string status, string word = "")
-        {
-            if (!CanChange) return;
-            current.state.cues.Add(new ExperienceCueRecord { cueId = cueId, status = status,
-                word = word, timestampUtc = DateTime.UtcNow.ToString("O") });
             Persist();
         }
         public void RecordConversation(ConversationRecord conversation)

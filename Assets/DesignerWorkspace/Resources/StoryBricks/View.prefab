@@ -307,7 +307,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Judy \xB7 Fox \xB7 Rain \xB7 Tree"
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
   m_sharedMaterial: {fileID: -2102801155572039195, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
@@ -444,7 +444,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: JUDY
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -1674,7 +1674,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Judy is the storyteller. Watch her story grow above the bricks.
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
   m_sharedMaterial: {fileID: -2102801155572039195, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
@@ -2091,7 +2091,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Play a saved story
+  m_text: Coming soon
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -2907,7 +2907,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: JUDY
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -3044,7 +3044,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Judy\u2019s story"
+  m_text: Judy
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -3590,7 +3590,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Judy\u2019s story is ready."
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -3809,8 +3809,6 @@ MonoBehaviour:
   brailleLetter: 0.12
   brailleHold: 0.6
   brailleCrossfade: 0.4
-  narration: []
-  narrationWord: 
   state: 0
 --- !u!1 &4260356010453355359
 GameObject:
@@ -4049,7 +4047,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: JUDY
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -4450,7 +4448,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Make a new story
+  m_text: Create World
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -4662,7 +4660,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Build it with braille bricks
+  m_text: Build your own story
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
   m_sharedMaterial: {fileID: -2102801155572039195, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
@@ -4799,7 +4797,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: JUDY
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -5864,23 +5862,11 @@ MonoBehaviour:
     m_PressedTrigger: Pressed
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
-  m_Interactable: 1
+  m_Interactable: 0
   m_TargetGraphic: {fileID: 8944065236015381034}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 6848567492966699470}
-        m_TargetAssemblyTypeName: ViewerFlow, Assembly-CSharp
-        m_MethodName: OnSavedStory
-        m_Mode: 0
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: 
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
 --- !u!114 &3362055197089306678
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6336,7 +6322,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: JUDY
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -6645,7 +6631,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "\u201CIt goes yip yip when it runs.\u201D"
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8167f5842f8de437f9e1a45053154562, type: 2}
   m_sharedMaterial: {fileID: -948299768717774290, guid: 8167f5842f8de437f9e1a45053154562, type: 2}
@@ -7042,7 +7028,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Tap tap tap, like tiny drums.
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
   m_sharedMaterial: {fileID: -2102801155572039195, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
@@ -7179,7 +7165,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: JUDY
+  m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
