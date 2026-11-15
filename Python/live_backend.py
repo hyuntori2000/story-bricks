@@ -149,9 +149,12 @@ class ElevenLabsEffects:
             raise BackendError("sfx_key_missing", "Sound effects are not configured on the Mac backend.", 503)
         if self.model not in ("eleven_text_to_sound_v2", "eleven_text_to_sound_v3"):
             raise BackendError("sfx_model_invalid", "The configured sound-effect model is not supported.", 503)
-        prompt = ("One gentle, recognizable nonverbal sound effect for a child's story. "
-                  "No spoken words, spelling, narration, or music. Evoke the subject or action: "
-                  + word.rstrip(".").replace(".", " ") + ".")
+        prompt = ("Close-up recording of the recognizable real-world sound made by "
+                  + word.rstrip(".").replace(".", " ") + ". "
+                  "For an animal, its characteristic call; for an instrument, a few clear notes; "
+                  "for an object, a familiar physical action. Keep the subject's own sound prominent, "
+                  "natural and comfortable in volume. No speech, spelling, narration, singing, "
+                  "background music, or added cinematic effects.")
         if context:
             prompt += " Story context: " + context
         payload = {"text": prompt[:450], "duration_seconds": self.duration_seconds,
