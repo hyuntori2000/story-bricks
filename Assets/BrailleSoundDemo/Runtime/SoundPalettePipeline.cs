@@ -53,18 +53,22 @@ namespace BrailleSoundDemo
             if(ambienceSource != null) ambienceSource.volume=NarrationAmbienceVolume*WordGainMultiplier;
         }
 
-        public IEnumerator PrepareWord(string word,Action<AudioClip> completed)
+        public IEnumerator PrepareWord(string word,Action<AudioClip> completed) => PrepareWord(word,"",completed);
+
+        public IEnumerator PrepareWord(string word,string context,Action<AudioClip> completed)
         {
             int token=generation;
             if(LiveEffectsEnabled)
             {
-                string key=(ExperienceContext?.Invoke()?.Key ?? "")+":"+(SessionId?.Invoke() ?? "")+":"+Normalize(word);
+                context=(context ?? "").Trim();
+                if(context.Length>240) context=context.Substring(0,240);
+                string key=(ExperienceContext?.Invoke()?.Key ?? "")+":"+(SessionId?.Invoke() ?? "")+":"+Normalize(word)+":"+context;
                 if(generatedClips.TryGetValue(key,out var cached) && cached!=null)
                 { yield return null;if(Valid(token)) completed?.Invoke(cached);yield break; }
                 if(liveClient==null) liveClient=new LiveSoundEffectClient(()=>SessionId?.Invoke(),()=>ExperienceContext?.Invoke() ?? new ExperienceIdentity());
                 Status="Generating sound for "+Normalize(word);
                 AudioClip generated=null;string error=null;
-                yield return liveClient.Generate(word,(clip,detail)=>{generated=clip;error=detail;});
+                yield return liveClient.Generate(word,context,(clip,detail)=>{generated=clip;error=detail;});
                 if(!Valid(token)) {if(generated!=null) Destroy(generated);yield break;}
                 if(generated!=null) generatedClips[key]=generated;
                 Status=generated!=null ? "Generated sound for "+Normalize(word) : "Sound unavailable: "+error;

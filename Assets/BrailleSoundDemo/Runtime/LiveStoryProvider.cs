@@ -16,6 +16,7 @@ namespace BrailleSoundDemo
     [Serializable] public sealed class BackendReply
     {
         public string sessionId, requestId, text, audioPath, error, code;
+        public string nextInput, turnId, spokenText;
         public string workspaceId, experienceSessionId;
         public BackendMetrics metrics;
     }
@@ -27,7 +28,7 @@ namespace BrailleSoundDemo
     }
 
     /// <summary>The local Python process owns the API key. No secret is sent to or stored by Unity.</summary>
-    public sealed class LiveStoryProvider : IStoryProvider, IDisposable
+    public sealed class LiveStoryProvider : IStoryProvider, IDialogueStoryProvider, IDisposable
     {
         public const string BaseUrl = "http://127.0.0.1:8766";
         readonly Func<string> currentSession;
@@ -44,6 +45,7 @@ namespace BrailleSoundDemo
         }
         public IEnumerator Question(StoryContext context, Action<StoryReply> completed) => Generate("question", context, completed);
         public IEnumerator Story(StoryContext context, Action<StoryReply> completed) => Generate("story", context, completed);
+        public IEnumerator Dialogue(StoryContext context, Action<StoryReply> completed) => Generate("dialogue", context, completed);
 
         IEnumerator Generate(string operation, StoryContext context, Action<StoryReply> completed)
         {
@@ -87,6 +89,12 @@ namespace BrailleSoundDemo
             {
                 completed(new StoryReply { error = "The backend returned invalid speech text or an invalid audio path.", errorCode = "invalid_response" }); yield break;
             }
+            if (operation == "dialogue" && (reply.turnId != context.turnId ||
+                (reply.nextInput != "build_word" && reply.nextInput != "speak_answer")))
+            {
+                completed(new StoryReply { error = "Rejected a dialogue response with a different turn or unsupported input mode.", errorCode = "invalid_dialogue_response" });
+                yield break;
+            }
             byte[] audio = null; string error = null;
             using (var request = UnityWebRequest.Get(BaseUrl + reply.audioPath))
             {
@@ -119,7 +127,8 @@ namespace BrailleSoundDemo
                 " decodeAndSaveMs="+((Time.realtimeSinceStartupAsDouble-downloadedAt)*1000).ToString("F0")+
                 " backend="+(reply.metrics != null ? JsonUtility.ToJson(reply.metrics) : "unavailable"));
             completed(error == null ? new StoryReply { text = reply.text, audioClip = clip, audioFile = path,
-                audioPath = reply.audioPath } : new StoryReply { error = error, errorCode = "audio_local_storage" });
+                audioPath = reply.audioPath, nextInput = reply.nextInput, turnId = reply.turnId,
+                spokenText = reply.spokenText } : new StoryReply { error = error, errorCode = "audio_local_storage" });
         }
 
         static bool RetryableGenerationError(string code)
@@ -130,6 +139,7 @@ namespace BrailleSoundDemo
             {
                 case "api_access": case "key_missing": case "dependency_missing":
                 case "invalid_context": case "invalid_id": case "answer_order":
+                case "invalid_turn_id": case "invalid_dialogue_event": case "invalid_completion_mode":
                 case "finish_required": case "request_conflict": case "audio_local_storage":
                 case "request_interrupted": case "request_pending": case "result_save_failed":
                 case "request_save_failed": case "audio_save_failed": case "invalid_workspace_owner":

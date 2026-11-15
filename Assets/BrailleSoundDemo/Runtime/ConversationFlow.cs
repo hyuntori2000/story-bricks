@@ -26,6 +26,7 @@ namespace BrailleSoundDemo
     }
     [Serializable] public sealed class ConversationTurn
     {
+        public string turnId, inputType;
         public int wordIndex;
         public string groupId;
         public string[] componentIds;
@@ -36,6 +37,9 @@ namespace BrailleSoundDemo
     }
     [Serializable] public sealed class StoryContext
     {
+        public int schemaVersion = 1;
+        public string dialogueEvent, turnId;
+        public bool finishRequested;
         public string currentWord;
         public string completionMode;
         public List<WordRecord> words = new List<WordRecord>();
@@ -51,6 +55,7 @@ namespace BrailleSoundDemo
     }
     [Serializable] public sealed class ConversationRecord
     {
+        public int schemaVersion = 1;
         public string sessionId;
         public string workspaceId, experienceSessionId;
         public string startedAt;
@@ -83,6 +88,7 @@ namespace BrailleSoundDemo
     public sealed class StoryReply
     {
         public string text;
+        public string nextInput, turnId, spokenText;
         public string audioResource;
         public AudioClip audioClip;
         public string audioFile;
@@ -110,6 +116,10 @@ namespace BrailleSoundDemo
     {
         IEnumerator Question(StoryContext context, Action<StoryReply> completed);
         IEnumerator Story(StoryContext context, Action<StoryReply> completed);
+    }
+    public interface IDialogueStoryProvider
+    {
+        IEnumerator Dialogue(StoryContext context, Action<StoryReply> completed);
     }
     /// <summary>Optional cancellation seam for injected providers with work outside the owning coroutine.</summary>
     public interface ICancellableStoryProvider
@@ -143,7 +153,7 @@ namespace BrailleSoundDemo
     }
 
     /// <summary>Owns turn timing and storage. Letter animation/vision only supplies completed word observations.</summary>
-    public sealed class ConversationFlow : MonoBehaviour
+    public sealed partial class ConversationFlow : MonoBehaviour
     {
         public ConversationState State { get; private set; } = ConversationState.Ready;
         public string CurrentPrompt { get; private set; } = "";
@@ -311,6 +321,7 @@ namespace BrailleSoundDemo
         public bool CanComplete(int index)
         {
             if (Record == null || index < 0 || index >= StoryWordLimit || !SpatializerAvailableOnPlatform()) return false;
+            if (GuidedDialogueEnabled) return index == Record.words.Count && ReadyForPhysicalWord;
             if (index == 0) return State == ConversationState.Ready && Record.words.Count == 0;
             return State == ConversationState.Silent && Record.words.Count == index && Record.turns.Count == index;
         }
@@ -359,11 +370,12 @@ namespace BrailleSoundDemo
                 finishMarker = PhysicalWordsEnabled ? physicalFinishRequested : finishMarker,
                 componentIds = componentIds != null ? (string[])componentIds.Clone() : new string[0],
                 worldPosition = worldPosition, completedAt = UtcNow() });
+            if (GuidedDialogueEnabled) SaveGuidedBuildResponse(Record.words[index]);
             int token = generation;
             Log("word - " + normalizedWord + (finishMarker ? (PhysicalWordsEnabled ? " [final round]" : "#") : ""));
             if (!Valid(token)) return false;
             if (!Save()) return false;
-            StartCoroutine(WordSequence(index, token));
+            StartCoroutine(GuidedDialogueEnabled ? GuidedDialogueSequence("word", index, token) : WordSequence(index, token));
             return true;
         }
         /// <summary>Convenience fixture API. Real recognition adapters must use the explicit identity/text overload.</summary>
@@ -398,6 +410,7 @@ namespace BrailleSoundDemo
         /// <summary>A separate period ends the answered queue without becoming a question or sound word.</summary>
         public bool RequestStoryFinish()
         {
+            if (GuidedDialogueEnabled) return RequestGuidedStoryFinish();
             if (!PhysicalWordsEnabled || storyRequested || Record == null || Record.words.Count == 0 ||
                 Record.turns.Count != Record.words.Count || State != ConversationState.Silent) return false;
             physicalFinishRequested = true;
@@ -440,6 +453,7 @@ namespace BrailleSoundDemo
             microphone?.Cancel(); CancelProviderWork(false); liveAnswerPending = false;
             ClearWordPlayback(); backgroundJobs.Clear();
             pendingQuestion = ""; CurrentPrompt = "";
+            if (GuidedDialogueEnabled) CancelGuidedPromptForStory();
             if (useLiveProvider && !IsLive)
             {
                 // ConfigureLive resets the record; manual finish must retain it.
@@ -741,7 +755,7 @@ namespace BrailleSoundDemo
         {
             applicationPaused = paused;
             if (!paused || !IsLive || !liveAnswerPending || Record == null || activeIndex < 0 ||
-                Record.words.Count <= activeIndex || Record.turns.Count != activeIndex ||
+                Record.words.Count <= activeIndex || !AnswerRoundPending(activeIndex) ||
                 (State != ConversationState.Listening && State != ConversationState.PreparingAnswer)) return;
             interruptedAnswerSession = Record.sessionId;
             interruptedAnswerGeneration = generation; interruptedAnswerIndex = activeIndex;
@@ -752,7 +766,7 @@ namespace BrailleSoundDemo
         }
         bool InterruptedAnswerMatches(int index, int token) => interruptedAnswerGeneration == token &&
             token == generation && interruptedAnswerIndex == index && activeIndex == index &&
-            Record != null && Record.sessionId == interruptedAnswerSession && Record.turns.Count == index;
+            Record != null && Record.sessionId == interruptedAnswerSession && AnswerRoundPending(index);
         void ClearInterruptedAnswer()
         {
             interruptedAnswerSession = null; interruptedAnswerGeneration = -1; interruptedAnswerIndex = -1;
@@ -813,6 +827,11 @@ namespace BrailleSoundDemo
         }
         IEnumerator SaveAnswer(int index, string answer, int token)
         {
+            if (GuidedDialogueEnabled)
+            {
+                yield return SaveGuidedAnswer(index, answer, token);
+                yield break;
+            }
             if (!Valid(token) || Record.turns.Count != index || State != ConversationState.ReceivingAnswer) yield break;
             var word = Record.words[index];
             Record.turns.Add(new ConversationTurn { wordIndex = word.index, groupId = word.groupId,
@@ -1046,6 +1065,9 @@ namespace BrailleSoundDemo
         StoryContext CaptureContext(string current)
         {
             var context = new StoryContext { currentWord = current,
+                schemaVersion = GuidedDialogueEnabled ? 2 : 1,
+                turnId = GuidedDialogueEnabled ? Guid.NewGuid().ToString("N") : "",
+                finishRequested = GuidedDialogueEnabled && (guidedFinishPending || physicalFinishRequested || manualStoryFinish),
                 completionMode = manualStoryFinish ? "manual_saved_progress" : "" };
             foreach (var w in Record.words)
                 context.words.Add(CopyWord(w));
@@ -1059,6 +1081,7 @@ namespace BrailleSoundDemo
             componentIds = CopyIds(word.componentIds), worldPosition = word.worldPosition, completedAt = word.completedAt
         };
         static ConversationTurn CopyTurn(ConversationTurn turn) => new ConversationTurn {
+            turnId = turn.turnId, inputType = turn.inputType,
             wordIndex = turn.wordIndex, groupId = turn.groupId, componentIds = CopyIds(turn.componentIds),
             word = turn.word, question = turn.question, answer = turn.answer, answeredAt = turn.answeredAt
         };
@@ -1081,7 +1104,7 @@ namespace BrailleSoundDemo
         bool ExportStoryOutput(StoryReply reply, StoryContext context, int token)
         {
             if (!Valid(token) || lastStoryOutput != null) return false;
-            var output = new StoryOutput { schemaVersion = IsLive ? 2 : 1, sessionId = Record.sessionId, storyText = reply.text,
+            var output = new StoryOutput { schemaVersion = GuidedDialogueEnabled ? 3 : IsLive ? 2 : 1, sessionId = Record.sessionId, storyText = reply.text,
                 workspaceId = Record.workspaceId, experienceSessionId = Record.experienceSessionId,
                 storyAudioResource = reply.audioResource, storyAudioFile = reply.audioFile, storyAudioPath = reply.audioPath };
             foreach (var word in context.words) output.words.Add(CopyWord(word));
@@ -1124,6 +1147,11 @@ namespace BrailleSoundDemo
         }
         void RecoverRequestFailure(int index, string operation, StoryReply reply, string error)
         {
+            if (GuidedDialogueEnabled && operation != "story")
+            {
+                RecoverGuidedDialogueFailure(operation, reply, error);
+                return;
+            }
             if (operation == "story" && (manualStoryFinish || PhysicalWordsEnabled))
             {
                 Record.failures.Add(new ConversationFailureRecord { operation = operation, error = error,
@@ -1171,6 +1199,7 @@ namespace BrailleSoundDemo
         }
         public void ResetSession()
         {
+            ResetGuidedDialogue();
             ClearInterruptedAnswer();
             generation++; CancelJobMetrics(); StopAllCoroutines();
             if (wordSource != null) wordSource.Stop(); if (voiceSource != null) voiceSource.Stop();

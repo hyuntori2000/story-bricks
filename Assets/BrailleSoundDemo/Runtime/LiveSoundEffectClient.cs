@@ -10,7 +10,7 @@ namespace BrailleSoundDemo
 {
     [Serializable] sealed class SoundEffectRequest
     {
-        public string sessionId, requestId, word;
+        public string sessionId, requestId, word, context;
         public string workspaceId, experienceSessionId;
     }
 
@@ -24,7 +24,9 @@ namespace BrailleSoundDemo
         public LiveSoundEffectClient(Func<string> currentSession, Func<ExperienceIdentity> currentExperience = null)
         { session=currentSession; experience=currentExperience ?? (() => new ExperienceIdentity()); }
 
-        public IEnumerator Generate(string word,Action<AudioClip,string> completed)
+        public IEnumerator Generate(string word,Action<AudioClip,string> completed) => Generate(word,"",completed);
+
+        public IEnumerator Generate(string word,string context,Action<AudioClip,string> completed)
         {
             string identity=session?.Invoke(); int token=revision;
             var owner = experience();
@@ -35,7 +37,7 @@ namespace BrailleSoundDemo
                 if(!Valid(token,identity,owner)) yield break;
                 string requestId=Guid.NewGuid().ToString("N");
                 var payload=new SoundEffectRequest {sessionId=identity,requestId=requestId,word=word,
-                    workspaceId=owner.WorkspaceId,experienceSessionId=owner.ExperienceSessionId};
+                    context=context, workspaceId=owner.WorkspaceId,experienceSessionId=owner.ExperienceSessionId};
                 BackendReply reply=null;
                 Debug.Log("[Sound generation] request attempt="+attempt+" word="+word);
                 using(var request=new UnityWebRequest(LiveStoryProvider.BaseUrl+"/sound-effect","POST"))

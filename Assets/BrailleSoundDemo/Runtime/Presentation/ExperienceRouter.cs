@@ -64,7 +64,11 @@ namespace BrailleSoundDemo.Presentation
                 // Close the imported menu. Create World keeps the existing physical
                 // capture, progress hint and Finish UI, without the prototype story screens.
                 view.BeginRoute("demo");
-                core.SessionStore?.SetStage("building");
+                // The fixed welcome belongs to this newly owned Create World
+                // experience. Opening the menu itself never starts speech.
+                bool started=core.Flow.BeginGuidedExperience();
+                core.SessionStore?.SetStage(started ? "introduction" : "error");
+                if(!started) Debug.LogError("[Experience] Could not start the guided introduction for the new experience.");
                 Debug.Log("[Experience] Selected demo session="+experience);
             }
             finally { changingRoute=false; }
@@ -79,6 +83,18 @@ namespace BrailleSoundDemo.Presentation
             var flow=core.Flow;
             switch(flow.State)
             {
+                case ConversationState.Ready:
+                case ConversationState.Silent:
+                    core.SessionStore?.SetStage("building"); break;
+                case ConversationState.RequestingQuestion:
+                    core.SessionStore?.SetStage("dialogue_generating"); break;
+                case ConversationState.Asking:
+                    core.SessionStore?.SetStage("dialogue_playing"); break;
+                case ConversationState.PreparingAnswer:
+                case ConversationState.Listening:
+                    core.SessionStore?.SetStage("listening"); break;
+                case ConversationState.ReceivingAnswer:
+                    core.SessionStore?.SetStage("answer_saving"); break;
                 case ConversationState.RequestingStory:
                     core.SessionStore?.SetStage("story_generating"); break;
                 case ConversationState.Story:

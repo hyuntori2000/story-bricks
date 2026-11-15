@@ -29,6 +29,7 @@ import uuid
 import wave
 from workspace_storage import (StorageError, SessionStateStore, RequestArchive, owner_from,
                                owner_from_query, session_directory, read_json, write_json)
+import guided_dialogue
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parent
@@ -218,6 +219,14 @@ def narrative_context(context: dict) -> dict:
     }
     if context.get("completionMode") == MANUAL_COMPLETION_MODE:
         projected["completionMode"] = MANUAL_COMPLETION_MODE
+    if context.get("schemaVersion") == 2:
+        projected.update(schemaVersion=2, dialogueEvent=context.get("dialogueEvent", ""),
+                         finishRequested=context["finishRequested"])
+        for target, source in zip(projected["turns"], context["turns"]):
+            target.update(turnId=source["turnId"], inputType=source["inputType"])
+        if context.get("dialogueEvent") in ("start", "word", "answer"):
+            projected["allowedNextInputs"] = guided_dialogue.allowed_next_inputs(context)
+            projected["spokenAnswersForCurrentWord"] = guided_dialogue.spoken_answer_count(context)
     return projected
 
 
@@ -276,6 +285,37 @@ class OpenAIUpstream:
         if operation == "question" and (len(text.split()) > 45 or text.count("?") != 1):
             raise BackendError("invalid_question", "The generated question was not one brief question. Start a new request to try again.", 502)
         return text
+
+    def generate_structured(self, operation: str, instructions: str, context: dict) -> dict:
+        """One Responses call with strict output shape; local rules validate meaning."""
+        request = {
+            "model": self.settings.text_model,
+            "instructions": instructions,
+            "input": json.dumps(narrative_context(context), ensure_ascii=False, separators=(",", ":")),
+            "reasoning": {"effort": "low"},
+            "max_output_tokens": 1800 if operation == "dialogue" else 4000,
+            "text": {"format": {"type": "json_schema", "name": "guided_" + operation,
+                                  "strict": True, "schema": guided_dialogue.response_schema(operation, context)}},
+            "store": False,
+        }
+        raw = self._http("responses", json.dumps(request).encode(), "application/json", 45, 1024 * 1024)
+        try:
+            result = json.loads(raw)
+            if result.get("status") != "completed":
+                raise BackendError("text_incomplete", "OpenAI did not complete the structured response.", 502)
+            content = [part for item in result.get("output", []) if item.get("type") == "message"
+                       for part in item.get("content", [])]
+            if any(part.get("type") == "refusal" for part in content):
+                raise BackendError("text_refusal", "OpenAI declined this generation request.", 502)
+            text = "\n".join(part["text"] for part in content if part.get("type") == "output_text").strip()
+            if not text or len(text) > 12000:
+                raise ValueError()
+            value = json.loads(text)
+            if not isinstance(value, dict):
+                raise ValueError()
+            return value
+        except (TypeError, ValueError, KeyError, AttributeError):
+            raise BackendError("invalid_structured_response", "OpenAI returned an unreadable structured response.", 502) from None
 
     def transcribe(self, wav_bytes: bytes) -> str:
         boundary = "story-" + uuid.uuid4().hex
@@ -404,6 +444,13 @@ def checked_text(value, label: str, maximum: int = 4000) -> str:
 def validate_context(context, operation: str) -> dict:
     if not isinstance(context, dict):
         raise BackendError("invalid_context", "A structured conversation context is required.")
+    if operation == "dialogue" or context.get("schemaVersion") == 2:
+        try:
+            return guided_dialogue.validate_context(context, operation)
+        except guided_dialogue.GuidedError as error:
+            raise BackendError(error.code, error.message, error.status) from None
+    if context.get("schemaVersion") not in (None, 0, 1):
+        raise BackendError("invalid_context", "The conversation schemaVersion is not supported.")
     completion_mode = context.get("completionMode")
     # Unity JsonUtility can emit an unset string field as null or an empty string.
     # Only the explicit manual value relaxes the normal saved-answer requirement.
@@ -550,7 +597,8 @@ class Backend:
                 "soundEffectsProvider": "ElevenLabs", "soundEffectsModel": getattr(self.effects, "model", ""),
                 "soundEffectsDurationSeconds": getattr(self.effects, "duration_seconds", 3.0),
                 "workspaceStorageEnabled": True, "workspaceDirectory": str(self.workspace_directory),
-                "sessionStateMaxBytes": MAX_SESSION_STATE_BYTES, "unscopedStorage": "legacy"}
+                "sessionStateMaxBytes": MAX_SESSION_STATE_BYTES, "unscopedStorage": "legacy",
+                "guidedDialogueEnabled": True, "storySentenceCount": 7}
 
     def dispatch(self, route: str, body: bytes, content_type: str) -> tuple[int, dict]:
         started_at = time.perf_counter()
@@ -571,7 +619,7 @@ class Backend:
                 raise BackendError("invalid_session_state", "Expected a finite JSON session snapshot.") from None
             except OSError:
                 raise BackendError("session_save_failed", "The Mac could not save this session snapshot.", 507) from None
-        if parsed.path not in ("/question", "/story", "/transcribe", "/sound-effect"):
+        if parsed.path not in ("/question", "/dialogue", "/story", "/transcribe", "/sound-effect"):
             raise BackendError("not_found", "Endpoint not found.", 404)
         operation = parsed.path[1:]
         if operation == "transcribe":
@@ -639,6 +687,8 @@ class Backend:
         result = {"sessionId": session, "requestId": request, "text": "", "audioPath": "", "error": "", "code": "", "metrics": metrics}
         if owner is not None:
             result.update(owner.fields())
+        if isinstance(context, dict) and context.get("schemaVersion") == 2:
+            result["turnId"] = context.get("turnId") or ""
         def measured(name, action):
             stage_started = time.perf_counter()
             try:
@@ -665,6 +715,22 @@ class Backend:
                 audio_path = measured("audioStoreMs", lambda: save_audio(audio))
                 result.update(audioPath=audio_path, provider="ElevenLabs", model=self.effects.model,
                               durationSeconds=self.effects.duration_seconds, audioFormat="PCM16 mono 24000 Hz")
+            elif operation == "dialogue":
+                if context["dialogueEvent"] == "start":
+                    reply = {"text": guided_dialogue.INTRO, "spokenText": guided_dialogue.INTRO,
+                             "question": "Who is your story about?", "nextInput": "build_word", "turnId": context["turnId"]}
+                else:
+                    value = measured("textMs", lambda: self.upstream.generate_structured("dialogue", self.prompts["dialogue"], context))
+                    reply = guided_dialogue.dialogue_reply(value, context)
+                audio = measured("speechMs", lambda: self.upstream.synthesize(reply["spokenText"], metrics=metrics))
+                audio_path = measured("audioStoreMs", lambda: save_audio(audio))
+                result.update(reply, audioPath=audio_path)
+            elif operation == "story" and context.get("schemaVersion") == 2:
+                value = measured("textMs", lambda: self.upstream.generate_structured("story", self.prompts["guided_story"], context))
+                reply = guided_dialogue.story_reply(value, context)
+                audio = measured("speechMs", lambda: self.upstream.synthesize(reply["spokenText"], metrics=metrics))
+                audio_path = measured("audioStoreMs", lambda: save_audio(audio))
+                result.update(reply, audioPath=audio_path)
             else:
                 instructions = self.prompts[operation]
                 text = measured("textMs", lambda: self.upstream.generate_text(operation, instructions, context))
@@ -672,6 +738,9 @@ class Backend:
                 audio_path = measured("audioStoreMs", lambda: save_audio(audio))
                 result.update(text=text, audioPath=audio_path)
         except BackendError as error:
+            status = error.status
+            result.update(error=error.message, code=error.code)
+        except guided_dialogue.GuidedError as error:
             status = error.status
             result.update(error=error.message, code=error.code)
         except Exception:
@@ -790,7 +859,7 @@ def main():
     settings = Settings.from_environment()
     try:
         prompts = json.loads((HERE / "prompts.json").read_text(encoding="utf-8"))
-        for kind in ("question", "story"):
+        for kind in ("question", "story", "dialogue", "guided_story"):
             checked_text(prompts.get(kind), kind + " prompt", 12000)
         effects = ElevenLabsEffects(settings.elevenlabs_api_key, settings.sound_effect_model)
         backend = Backend(OpenAIUpstream(settings), HERE / "runtime/audio", prompts, effects=effects,

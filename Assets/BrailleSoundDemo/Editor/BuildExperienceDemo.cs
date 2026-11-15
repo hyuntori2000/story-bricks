@@ -21,6 +21,7 @@ namespace BrailleSoundDemo.Editor
                 view.GetComponentsInChildren<OVRCameraRig>(true).Length!=0)
                 throw new InvalidOperationException("The imported view must not own an XR rig, camera, or listener.");
             SaveMenuPreview(view);
+            Tests.GuidedDialogueVerification.Run();
             BuildPhysicalStoryDemo.BuildQuest();
         }
 

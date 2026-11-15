@@ -381,6 +381,7 @@ namespace BrailleSoundDemo.PhysicalStory
                 if(waitingForConversationRecapture) conversationQueue.Insert(0,anchor);
                 else conversationQueue.Add(anchor);
                 waitingForConversationRecapture=false;
+                RefreshFinishPending();
             }
             FinishWaiting(PhysicalWordInputPolicy.IsStoryFinishMarker(geometry.Word) && liveConversation
                 ? "Period received. Finishing earlier answers before creating your story."
@@ -429,6 +430,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         void TryStartQueuedConversation()
         {
+            RefreshFinishPending();
             if(!initialized || !experienceActive || finishMenuOpen || resetting || startingConversationWord || !liveConversation || waitingForConversationRecapture ||
                 Flow==null || Flow.Record==null || conversationQueue.Count==0 ||
                 (inputFeedback!=null && inputFeedback.isPlaying)) return;
@@ -438,24 +440,26 @@ namespace BrailleSoundDemo.PhysicalStory
             {
                 var word=conversationQueue[i];
                 if(word.anchor==null || !anchorsById.ContainsKey(word.groupId))
-                { conversationQueue.RemoveAt(i--);continue; }
+                { conversationQueue.RemoveAt(i--);RefreshFinishPending();continue; }
                 if(PhysicalWordInputPolicy.IsStoryFinishMarker(word.word))
                 {
                     if(Flow.Record.words.Count==0)
                     {
                         conversationQueue.RemoveAt(i);
-                        SetStatus("Build and answer at least one word before capturing the period.");
+                        RefreshFinishPending();
+                        SetStatus("Build at least one word before capturing the period.");
                     }
                     else if(Flow.RequestStoryFinish())
                     {
                         conversationQueue.RemoveAt(i);
+                        RefreshFinishPending();
                         SetStatus("Period accepted. Creating the story from the saved words and answers.");
                     }
                     return;
                 }
-                // Duplicate visuals remain valid. A repeated word can join the
-                // following story rather than blocking later distinct words.
-                if(PhysicalWordInputPolicy.IsRepeatedWord(word.word,Flow.Record.words)) continue;
+                // Guided dialogue accepts each distinct capture, including the
+                // same spelling when it answers a different build prompt.
+                if(!Flow.GuidedDialogueEnabled && PhysicalWordInputPolicy.IsRepeatedWord(word.word,Flow.Record.words)) continue;
                 startingConversationWord=true;
                 try
                 {
@@ -463,6 +467,7 @@ namespace BrailleSoundDemo.PhysicalStory
                         word.anchor.position,word.componentIds))
                     {
                         conversationQueue.Remove(word);
+                        RefreshFinishPending();
                         Debug.Log("[ConversationQueue] Started round="+(round+1)+
                             " captureIndex="+word.index+" pending="+conversationQueue.Count);
                     }
@@ -472,15 +477,31 @@ namespace BrailleSoundDemo.PhysicalStory
             }
         }
 
+        // A captured delimiter can arrive while the child is answering. Tell the
+        // dialogue to stop asking new follow-ups after that answer, without
+        // bypassing the build-word gate or consuming earlier queued words.
+        void RefreshFinishPending()
+        {
+            if(!initialized || resetting || !experienceActive || !liveConversation || Flow==null) return;
+            bool pending=false;
+            foreach(var word in conversationQueue)
+                if(word.anchor!=null && anchorsById.ContainsKey(word.groupId) && PhysicalWordInputPolicy.EndsStory(word.word))
+                { pending=true; break; }
+            Flow.SetFinishPending(pending);
+        }
+
         /// <summary>Start another story without removing captured word anchors or queued words.</summary>
         public bool StartNextConversation()
         {
             if(!initialized || !liveConversation || Flow==null ||
                 (Flow.State!=ConversationState.Finished && Flow.State!=ConversationState.Error)) return false;
             waitingForConversationRecapture=false;
+            bool guided=Flow.GuidedDialogueEnabled;
             Flow.ResetSession();
+            if(guided && !Flow.BeginGuidedExperience(false)) return false;
             observedStorySession=Flow.Record.sessionId;
             Images?.ResetSession(observedStorySession);
+            RefreshFinishPending();
             SetStatus("New conversation ready. Saved word anchors and queued words are kept.");
             return true;
         }
@@ -556,6 +577,7 @@ namespace BrailleSoundDemo.PhysicalStory
             // A dialogue failure must not cancel an unrelated capture or erase
             // other accepted words waiting in this workspace's queue.
             conversationQueue.RemoveAll(word=>word.groupId==groupId);
+            RefreshFinishPending();
             waitingForConversationRecapture=true;
             if(anchorsById.TryGetValue(groupId,out var word))
             {
