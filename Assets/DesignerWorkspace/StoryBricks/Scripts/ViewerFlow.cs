@@ -5,8 +5,8 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// Passive watercolour presentation. Only the experience router advances story state.
-/// Visual transitions never start capture, invent words, finish a session or play a story.
+/// Watercolour presentation shared by two isolated routes. Live state comes from the
+/// experience router; only the Judy route plays the supplied, authored cut-out story.
 public class ViewerFlow : MonoBehaviour
 {
     [System.Serializable]
@@ -34,7 +34,33 @@ public class ViewerFlow : MonoBehaviour
     public Image[] pulseImages;
     public Tag[] tags;
     public Sprite dotSprite;
-    public Button newStoryButton, savedStoryButton, watchAgainButton, doneButton;
+    public Button newStoryButton, savedStoryButton, tutorialButton, watchAgainButton, doneButton, restartButton;
+    // Retain the supplied scene's presentation references, without its prototype input flow.
+    public Button finishButton;
+    public CanvasGroup finish, fox, bricks, pinch, period;
+    public Image foxSit, foxYip, pinchOpen, pinchClosed;
+    public Image[] brickImages;
+    public TMP_Text hintText, pinchText;
+
+    [Header("Authored Judy story")]
+    public StoryStage stage;
+    public string[] demoWords;
+    [TextArea] public string[] narration;
+    public int[] narrationWord;
+    public float[] narrationStart;
+    public string[] narrationWordName;
+    public AudioClip narrationClip, storySfxClip;
+    [Range(0f, 1f)] public float storySfxVolume = 0.9f;
+    public float storyEnd = 61.5f;
+    public float endHold = 2f;
+
+    [Header("Shared video frame")]
+    public CanvasGroup videoGroup;
+    public RawImage liveVideoImage;
+
+    [Header("Presentation sound")]
+    public AudioClip clickClip, bloopClip, sparkleClip, successClip;
+    [Range(0f, 1f)] public float sfxVolume = 0.8f;
 
     [Header("Look")]
     public Color ink = new Color(0.357f, 0.306f, 0.271f);
@@ -52,10 +78,17 @@ public class ViewerFlow : MonoBehaviour
     readonly Dictionary<CanvasGroup, Coroutine> running = new Dictionary<CanvasGroup, Coroutine>();
     readonly List<string> words = new List<string>();
     public event Action CreateWorldRequested;
+    public event Action JudyRequested;
+    public event Action BackToMenuRequested;
+    public event Action ReplayRequested;
+    JudyStoryPlayer judyPlayer;
+    AudioSource interfaceAudio;
+    Coroutine highlight;
+    int highlightedWord = -1;
     public string WorkspaceId { get; private set; } = "";
     public bool IsMenuVisible => state == State.Menu;
-    bool busy;
-    bool wantListening, pressing;
+    bool busy, presentationPaused;
+    bool wantListening, pressing, pulseRequested;
 
     static readonly string[] Braille =
     {
@@ -71,17 +104,38 @@ public class ViewerFlow : MonoBehaviour
         ResetAll();
         WorkspaceId = "";
         state = State.Menu;
-        SetButtonCopy(newStoryButton, "Create World", "Build your own story");
-        SetButtonCopy(savedStoryButton, "Judy", "Coming soon");
-        // Reserved for the finished Judy film. No capture or authored cue route is active here.
-        if(savedStoryButton!=null) savedStoryButton.interactable=false;
+        SetButtonCopy(newStoryButton, "Create Your World", "Build your own story");
+        SetButtonCopy(savedStoryButton, "Judy's Story", "Watch her world come to life");
+        if (savedStoryButton != null) savedStoryButton.interactable = true;
+        if (tutorialButton != null) tutorialButton.gameObject.SetActive(false);
         Bloom(menu);
     }
 
-    public void OnNewStory() { if (state == State.Menu && !pressing) StartCoroutine(Choose(newStoryButton, CreateWorldRequested)); }
+    public void OnNewStory()
+    {
+        if ((state == State.Menu || state == State.End) && !pressing)
+            StartCoroutine(Choose(newStoryButton, CreateWorldRequested));
+    }
+    public void OnSavedStory()
+    {
+        if (state == State.Menu && !pressing) StartCoroutine(Choose(savedStoryButton, JudyRequested));
+    }
+    public void OnWatchAgain()
+    {
+        if (state == State.End && !pressing) StartCoroutine(Choose(watchAgainButton, ReplayRequested));
+    }
+    public void OnDone()
+    {
+        if (state == State.End && !pressing) StartCoroutine(Choose(doneButton, BackToMenuRequested));
+    }
+    public void OnRestart()
+    {
+        if (state == State.End && !pressing) StartCoroutine(Choose(restartButton, CreateWorldRequested));
+    }
     IEnumerator Choose(Button button, Action selected)
     {
         pressing = true;
+        Cue(clickClip);
         button?.GetComponent<WashButton>()?.Flash();
         yield return Wait(.18f);
         pressing = false;
@@ -90,10 +144,126 @@ public class ViewerFlow : MonoBehaviour
 
     public void BeginRoute(string workspaceId)
     {
-        if(workspaceId!="demo") throw new ArgumentException("Only Create World is available.",nameof(workspaceId));
+        if (workspaceId != "demo" && workspaceId != "judy")
+            throw new ArgumentException("Unknown presentation route.", nameof(workspaceId));
         ResetAll();
         WorkspaceId = workspaceId;
         state = State.Building;
+    }
+
+    public void PlayJudy()
+    {
+        if (WorkspaceId != "judy") return;
+        ResetAll();
+        state = State.Playing;
+        if (judyPlayer == null) judyPlayer = GetComponent<JudyStoryPlayer>();
+        if (judyPlayer == null) judyPlayer = gameObject.AddComponent<JudyStoryPlayer>();
+        judyPlayer.Play(this, presentationPaused);
+    }
+
+    public void StopJudy()
+    {
+        if (judyPlayer != null) judyPlayer.Stop();
+        else if (stage != null) stage.ResetStage();
+    }
+    public void SetPaused(bool paused)
+    {
+        presentationPaused = paused;
+        if (judyPlayer != null) judyPlayer.SetPaused(paused);
+    }
+
+    public void ShowLiveVideo(bool visible)
+    {
+        if (WorkspaceId != "demo") return;
+        Dry(ready); Dry(caption); Dry(subtitle); Dry(end);
+        SetBusy(false); SetListening(false);
+        if (visible) { state = State.Playing; Bloom(videoGroup); }
+        else Dry(videoGroup);
+    }
+
+    public void ShowLiveEnd(string title)
+    {
+        if (WorkspaceId != "demo") return;
+        ShowEndCard(string.IsNullOrWhiteSpace(title) ? "Your story" : title);
+    }
+
+    internal void ShowJudyLine(int index)
+    {
+        if (WorkspaceId != "judy" || state != State.Playing || narration == null || index >= narration.Length) return;
+        string name = narrationWordName != null && index < narrationWordName.Length ? narrationWordName[index] : null;
+        int word = -1;
+        if (!string.IsNullOrEmpty(name))
+        {
+            word = words.IndexOf(name);
+            if (word < 0) { ShowWord(name); word = words.Count - 1; }
+        }
+        highlightedWord = word;
+        Highlight(word);
+        StartCoroutine(HighlightAfter(word));
+        StartCoroutine(SubtitleCo(narration[index]));
+    }
+
+    internal void FinishJudy()
+    {
+        if (WorkspaceId != "judy") return;
+        ShowEndCard("Judy's story");
+        ShowCaption("Curious how Judy made this story? Create your own world.");
+        Cue(successClip);
+    }
+
+    IEnumerator SubtitleCo(string text)
+    {
+        if (subtitle == null || subtitleText == null) yield break;
+        if (!subtitle.gameObject.activeSelf)
+        {
+            Fit(subtitleBox, subtitleText, text); subtitleText.alpha = 1f; Bloom(subtitle);
+        }
+        else
+        {
+            yield return FadeText(subtitleText, 0f, 0.15f);
+            Fit(subtitleBox, subtitleText, text);
+            yield return FadeText(subtitleText, 1f, 0.15f);
+        }
+    }
+
+    void ShowEndCard(string title)
+    {
+        state = State.End;
+        Dry(subtitle); Dry(ready); Dry(videoGroup); Dry(caption);
+        SetListening(false); SetBusy(false);
+        if (stage != null) stage.Hide();
+        Highlight(-1);
+        if (endWords != null) endWords.text = string.Join(" · ", words);
+        if (end != null)
+            foreach (var label in end.GetComponentsInChildren<TMP_Text>(true))
+                if (label.name == "Title") label.text = title;
+        SetButtonCopy(watchAgainButton, "Watch again", "");
+        SetButtonCopy(restartButton, "Create World", "");
+        SetButtonCopy(doneButton, "Menu", "");
+        foreach (var button in new[] { watchAgainButton, restartButton, doneButton })
+            if (button != null) { button.gameObject.SetActive(true); button.interactable = true; }
+        StartCoroutine(EndCo());
+    }
+
+    IEnumerator EndCo()
+    {
+        if (endButtons != null)
+            foreach (var group in endButtons) if (group != null) { group.alpha = 0; group.interactable = false; }
+        Bloom(end);
+        yield return Wait(bloom);
+        if (endButtons != null)
+            foreach (var group in endButtons) { Bloom(group); yield return Wait(0.1f); }
+    }
+
+    void Cue(AudioClip clip)
+    {
+        if (clip == null) return;
+        if (interfaceAudio == null)
+        {
+            interfaceAudio = gameObject.AddComponent<AudioSource>();
+            interfaceAudio.playOnAwake = false; interfaceAudio.spatialBlend = 0f;
+        }
+        interfaceAudio.PlayOneShot(clip, sfxVolume);
     }
 
     public void SetListening(bool on) { wantListening = on; RefreshPulse(); }
@@ -130,19 +300,27 @@ public class ViewerFlow : MonoBehaviour
         state = State.Ready;
         SetListening(false); SetBusy(false);
         Dry(caption); Dry(subtitle);
-        var label = ready.GetComponentInChildren<TMP_Text>(true);
+        var label = ready != null ? ready.GetComponentInChildren<TMP_Text>(true) : null;
         if (label != null) label.text = message;
-        readyWash.fillAmount = 1f;
-        Bloom(ready);
-        // Intentionally no video, timer, end screen, or session reset.
+        if (readyWash != null) readyWash.fillAmount = 1f;
+        if (ready != null && !ready.gameObject.activeSelf) Bloom(ready);
+        // Polling updates the existing label; only entering this stage blooms the panel.
     }
 
     static void SetButtonCopy(Button button, string title, string sub)
     {
         if (button == null) return;
         foreach (var text in button.GetComponentsInChildren<TMP_Text>(true))
-            if (text.name == "Title") text.text = title;
+        {
+            if (text.name == "Title" || text.name == "Label")
+            {
+                text.text = title;
+                text.enableAutoSizing = true;
+                text.fontSizeMin = 10f;
+                text.fontSizeMax = Mathf.Max(14f, text.fontSize);
+            }
             else if (text.name == "Sub") text.text = sub;
+        }
     }
 
     void AddTag()
@@ -317,8 +495,8 @@ public class ViewerFlow : MonoBehaviour
 
     // ---------- Motion helpers ----------
 
-    void Bloom(CanvasGroup g, float dur = -1f) { Run(g, BloomCo(g, dur < 0 ? bloom : dur)); }
-    void Dry(CanvasGroup g) { if (g.gameObject.activeSelf) Run(g, DryCo(g, dry)); }
+    void Bloom(CanvasGroup g, float dur = -1f) { if (g != null) Run(g, BloomCo(g, dur < 0 ? bloom : dur)); }
+    void Dry(CanvasGroup g) { if (g != null && g.gameObject.activeSelf) Run(g, DryCo(g, dry)); }
 
     void Run(CanvasGroup g, IEnumerator co)
     {
@@ -345,6 +523,7 @@ public class ViewerFlow : MonoBehaviour
 
     IEnumerator DryCo(CanvasGroup g, float dur)
     {
+        g.interactable = false; g.blocksRaycasts = false;
         float a0 = g.alpha;
         for (float e = 0; e < dur; e += Time.unscaledDeltaTime)
         {
@@ -364,9 +543,12 @@ public class ViewerFlow : MonoBehaviour
 
     void RefreshPulse()
     {
+        if (pulse == null) return;
         bool show = wantListening || busy;
-        if (show && !pulse.gameObject.activeSelf) Bloom(pulse);
-        else if (!show && pulse.gameObject.activeSelf) Dry(pulse);
+        if (show == pulseRequested) return;
+        pulseRequested = show;
+        // Opposite state updates can arrive in one frame; cancel the previous fade.
+        if (show) Bloom(pulse); else Dry(pulse);
     }
 
     void AnimatePulse()
@@ -386,6 +568,7 @@ public class ViewerFlow : MonoBehaviour
 
     void Fit(RectTransform box, TMP_Text text, string s)
     {
+        if (text == null || box == null) return;
         text.text = s;
         Vector2 p = text.GetPreferredValues(s, 500f, 0f);
         box.sizeDelta = new Vector2(Mathf.Min(p.x, 500f) + 30f, p.y + 18f);
@@ -397,11 +580,15 @@ public class ViewerFlow : MonoBehaviour
 
     void ResetAll()
     {
+        StopJudy();
         StopAllCoroutines();
         running.Clear();
+        highlight = null; highlightedWord = -1;
+        if (interfaceAudio != null) interfaceAudio.Stop();
+        if (liveVideoImage != null) liveVideoImage.texture = null;
         words.Clear();
-        wantListening = false; busy = false; pressing = false;
-        foreach (var g in new[] { menu, hint, caption, subtitle, ready, end, pulse })
+        wantListening = false; busy = false; pressing = false; pulseRequested = false;
+        foreach (var g in new[] { menu, hint, caption, subtitle, ready, end, pulse, videoGroup, fox, bricks, pinch, period, finish })
             if (g != null) { g.alpha = 0f; g.transform.localScale = Vector3.one; g.gameObject.SetActive(false); }
         if (tags != null)
             foreach (var t in tags)
@@ -412,5 +599,45 @@ public class ViewerFlow : MonoBehaviour
                 t.group.alpha = 0f; t.group.gameObject.SetActive(false);
             }
         if (subtitleText != null) subtitleText.alpha = 1f;
+        if (tutorialButton != null) tutorialButton.gameObject.SetActive(false);
+        if (finishButton != null) finishButton.gameObject.SetActive(false);
     }
+
+    IEnumerator HighlightAfter(int index)
+    {
+        yield return Wait(2.4f);
+        if (state == State.Playing && highlightedWord == index) Highlight(index);
+    }
+
+    void Highlight(int index)
+    {
+        if (highlight != null) StopCoroutine(highlight);
+        highlight = StartCoroutine(HighlightCo(index));
+    }
+
+    IEnumerator HighlightCo(int index)
+    {
+        int count = tags == null ? 0 : Mathf.Min(words.Count, tags.Length);
+        var washes = new float[count]; var labels = new float[count];
+        for (int i = 0; i < count; i++) { washes[i] = tags[i].wash.color.a; labels[i] = tags[i].label.alpha; }
+        for (float elapsed = 0; elapsed < 0.3f; elapsed += Time.unscaledDeltaTime)
+        {
+            float progress = elapsed / 0.3f;
+            for (int i = 0; i < count; i++)
+            {
+                if (tags[i].revealing) continue;
+                SetAlpha(tags[i].wash, Mathf.Lerp(washes[i], index < 0 ? tagNormal : i == index ? 1f : tagDim, progress));
+                if (!tags[i].inBraille) tags[i].label.alpha = Mathf.Lerp(labels[i], index < 0 || i == index ? 1f : 0.6f, progress);
+            }
+            yield return null;
+        }
+        for (int i = 0; i < count; i++)
+        {
+            if (tags[i].revealing) continue;
+            SetAlpha(tags[i].wash, index < 0 ? tagNormal : i == index ? 1f : tagDim);
+            if (!tags[i].inBraille) tags[i].label.alpha = index < 0 || i == index ? 1f : 0.6f;
+        }
+    }
+
+    void OnDisable() { StopJudy(); }
 }

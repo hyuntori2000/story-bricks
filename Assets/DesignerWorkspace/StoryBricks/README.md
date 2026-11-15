@@ -1,41 +1,37 @@
-# Story Bricks presentation and future Judy video
+# Story Bricks presentation
 
-The watercolour view supplies the **selection menu**: an active **Create World** entry and a disabled **Judy — Coming soon** entry. Choosing Create World closes the imported view and uses the original capture, dialogue and word-box experience with its existing small Finish button. Judy is reserved for a future single prepared video of approximately 30 seconds; no Judy playback is implemented yet.
+This presentation comes from the supplied `story-bricks-main-2` Unity project. The active layout was extracted from its `ParentUI.unity` scene, rather than the older `ParentUI.prefab`. The main application's existing XR rig, capture system and backend remain shared services.
 
-Presentation code must not start capture, change recognition, call an AI API, reset the session or start another route directly. Use the shared bridge/router for the supported Create World actions.
+## The two routes
 
-## Assets to edit
+**Judy** plays the supplied 61.5-second Unity cutout story: its original artwork, narrator, subtitles and synchronized sound-effect track. `StoryStage` animates the drawings against the narration clock. This is an authored Unity presentation, not the supplied 12-second MP4; that MP4 is not included. The end screen offers replay, Create Your World and return to the menu. Judy does not capture words, record answers, or call generation APIs.
 
-- `Assets/DesignerWorkspace/Resources/StoryBricks/View.prefab`: the imported watercolour selection menu. Change its graphics, typography, spacing and visual transitions here. Keep Create World connected to the core router and Judy disabled with its **Coming soon** label. The other supplied panels are inactive during Create World. Keep the existing Finish menu owned by the core.
-- Keep new artwork, media and presentation prefabs inside `Assets/DesignerWorkspace/`. Preserve their `.meta` files when sharing or moving them.
-- The old Judy word-sequence authoring workflow is removed. Do not add a `JudySequence` asset/player, expected-word steps, per-word voice bindings or cue-completion signals for Judy.
+**Create Your World** uses actual captured words and the existing conversation and generation functions. Its word tags, captions and listening/progress indicators follow live events. It never runs the source prototype's JUDY/MOON/WIND/KITE inputs, automatic recorded answers, simulated preparation timer or tutorial. Keep the existing small core Finish button and its Create Story / End Session / Cancel dialog. Generated animation starts after the real story narration finishes, and playback waits for the actual saved movie.
 
-The supplied Judy storyboard is historical reference material for creating the future finished video. It does not drive live word recognition or a caption preview. No finished Judy video is supplied. Create World never substitutes Judy media or automatically plays a demonstration video.
+## What designers can edit
 
-## Planned Judy video
+- `Assets/DesignerWorkspace/Resources/StoryBricks/View.prefab`: the supplied watercolour layout and its serialized presentation references.
+- `Assets/DesignerWorkspace/StoryBricks/Art`, `UI`, `Fonts`, `Audio`: authored graphics and sound. Keep `.meta` files when moving or sharing assets.
+- `Scripts/StoryStage.cs`: the authored Judy cutout animation.
+- `Scripts/JudyStoryPlayer.cs`: Judy narration-clock playback and cleanup.
+- `Scripts/ViewerFlow.cs`: passive UI transitions and navigation requests. It does not own recognition, microphone input or backend calls.
 
-The future flow is:
+Use `StoryFunctionBridge` for core actions. `ExperienceRouter` owns navigation and listens to the view's requests. Do not copy a second XR rig, camera, EventSystem, capture loop or microphone controller into this prefab. Changes to shared functions require the owner's integration branch.
 
-1. The viewer selects Judy once the real video and playback integration are available.
-2. The assigned, approximately 30-second video plays.
-3. After actual playback completion, the viewer is invited to try Create World.
+## Opening and input
 
-This is a content and interaction plan, not an implemented playback function. For now, leave the Judy entry disabled and empty. Do not add an automatic sample video, a fake completion timer, word capture, recognition-driven cues or API calls. The future invitation must use the core router to enter Create World instead of copying its camera, microphone or recognition components into Judy.
+The existing opening animation and accessible narrator prompt remain in place. After the prompt, a fresh double pinch enters Create Your World. The two menu buttons provide explicit route selection. The shared hand input handles UI buttons; the imported prototype's independent pinch and keyboard listeners are not included.
 
-## Create World and Finish
+## Importing and opening
 
-Create World's live capture, recognition, question/answer and story behavior remains unchanged. It uses the original capture view and Finish dialog, with no imported word row, captions, progress panels or authored story screens. **Create Story** uses accepted words and saved answers, then preserves the experience and records the next stage; **End Session** clears active objects and returns to selection without deleting saved archives.
+Normal checkouts use the committed prefab and assets; the original Downloads folder is not required. Open the main project with Unity **6000.3.28f1** and run `git lfs pull` to obtain the media.
 
-Create World's animation playback remains disabled until an actual generation-result integration is added. Display progression must follow real completion events, not timers in this view. General `WordMediaPresenter` and named presentation cue functions remain available for their supported actions; they are not the removed Judy word-sequence system.
+`Story Bricks > Update supplied presentation` is an explicit reimport operation. It reads `STORY_BRICKS_UX_SOURCE` (default: the owner's `story-bricks-main-2` folder), preserves the existing prefab GUID, reuses existing asset GUIDs, and extracts only presentation objects. Reimport can replace prefab layout edits; commit your design work before using it. Normal builds use the idempotent initial importer and preserve the committed view.
 
-## View and import rules
+Do not run the original source builders or replace the main project's Packages, ProjectSettings or shared scenes. Source URP/XR settings are not part of this integration.
 
-`ViewerFlow` is a passive presentation component. In the current application the router uses only its selection menu, then hides the imported view while Create World runs. The supplied word-row, caption and ready-screen widgets remain disconnected from the live route. The view does not inject words, advance a keyboard demo, automatically play a story or reset a session on enable.
+## Branch handoff
 
-The committed `View.prefab` is extracted from the latest supplied scene, not the older supplied `ParentUI.prefab`. `Story Bricks > Import supplied presentation once` is an initial import helper; it preserves an existing view. Normal team checkouts use the committed prefab and do not need the original Downloads folder. Do not run the original incoming project builders or copy its Packages, ProjectSettings or XR rig into the main application.
+The supplied assets and presentation code are on `design/judy-ux-integration`; the working application integration is on `dev/ux-integration`. Start further design work from the integrated development branch, then create a new `design/<task>` branch. Review design diffs against that branch's actual base commit, so inherited owner changes are not mistaken for new design edits. Do not merge into `main` without the owner's approval.
 
-The copied font assets keep their original GUIDs and embedded atlas textures. The included TextMesh Pro mobile distance-field shader is the exact dependency used by those materials, compatible with the main project's existing renderer.
-
-For headset testing, launch the main application **`org.braillelab.storydemo`**, installed by `Tools/install-physical-story.sh`. The separately installed **`com.storybricks.parentui`** is the original designer prototype and still has its own scripted demonstration flow; it is not the integrated Create World application.
-
-Create World's storage layout is unchanged. Previously saved Judy data is retained; disabling its menu entry does not delete or reclassify archives. An additional rollback checkpoint is preserved as `rollback/before-judy-video-only-20261114` at `82aa499`. See the root README for that checkpoint and the original pre-integration rollback instructions.
+Run the main app (`org.braillelab.storydemo`) for the integrated routes. The separate `com.storybricks.parentui` app is the original scripted prototype.
