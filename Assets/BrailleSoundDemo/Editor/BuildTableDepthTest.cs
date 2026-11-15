@@ -30,7 +30,7 @@ namespace BrailleSoundDemo.Editor
         };
 
         /// <summary>Apply the required Android features without replacing the current scene.</summary>
-        public static void ConfigureCaptureFeatures()
+        public static void ConfigureCaptureFeatures(bool handsOnly = false)
         {
             ValidateQuestProject();
             FeatureHelpers.RefreshFeatures(BuildTargetGroup.Android);
@@ -44,7 +44,8 @@ namespace BrailleSoundDemo.Editor
 
             var config = OVRProjectConfig.CachedProjectConfig;
             if (config == null) throw new InvalidOperationException("Meta editor initialization is incomplete. Finish package import and retry.");
-            config.handTrackingSupport = OVRProjectConfig.HandTrackingSupport.ControllersAndHands;
+            config.handTrackingSupport = handsOnly ? OVRProjectConfig.HandTrackingSupport.HandsOnly
+                : OVRProjectConfig.HandTrackingSupport.ControllersAndHands;
             config.handTrackingFrequency = OVRProjectConfig.HandTrackingFrequency.HIGH;
             config.insightPassthroughSupport = OVRProjectConfig.FeatureSupport.Required;
             config.sceneSupport = OVRProjectConfig.FeatureSupport.Required;

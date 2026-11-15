@@ -11,10 +11,9 @@ Add `BrailleSoundDemo.Presentation.StoryFunctionBridge` to an object in your own
 | `PlayCue(string cueKey)` | Play a named authored cue group. |
 | `EmitEvent(string eventName)` | Trigger one presentation event manually. |
 | `StartNextStory()` | Start the next conversation after completion/error, preserving other word boxes. |
-| `StartSession()` | Leave the initial Start Story screen and enable capture. |
 | `OpenFinishMenu()` | Show the shared English Create Story / End Session / Cancel confirmation. |
 | `CreateStory()` | Immediately call the real story API with accepted words and saved answers, including in prepared mode. Requires at least one word. |
-| `EndSession()` | Cancel the active session and return to Start Story. Archived captures remain on disk. |
+| `EndSession()` | Cancel the active session and return to the initial capture state. Archived captures remain on disk. |
 | `ResetSession()` | Explicitly clear the current session, pending words and media. |
 
 Changing modes starts a new session. Capture remains the existing same-hand double pinch followed by a three-second wait. Words can be created while another word's dialogue is playing; the live conversation consumes accepted words from a queue. An active capture/recognition request, missing permissions or invalid tracking still prevents another simultaneous capture.

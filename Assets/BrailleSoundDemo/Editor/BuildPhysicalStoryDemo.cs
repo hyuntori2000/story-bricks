@@ -26,7 +26,7 @@ namespace BrailleSoundDemo.Editor
             BuildDemo.Setup();
             // These settings also generate the APK manifest. A saved scene must
             // not skip them when the editor's default config is controllers-only.
-            BuildTableDepthTest.ConfigureCaptureFeatures();
+            BuildTableDepthTest.ConfigureCaptureFeatures(handsOnly: true);
             // This is a create-or-open operation. Never regenerate a saved,
             // designer-authored scene during a routine build.
             if(File.Exists(ScenePath))
@@ -38,6 +38,7 @@ namespace BrailleSoundDemo.Editor
                 return;
             }
             BuildTableDepthTest.Setup();
+            BuildTableDepthTest.ConfigureCaptureFeatures(handsOnly: true);
             var table = UnityEngine.Object.FindFirstObjectByType<TableDepthTestDemo>();
             var sender = UnityEngine.Object.FindFirstObjectByType<QuestFrameCapture>();
             var rig = UnityEngine.Object.FindFirstObjectByType<OVRCameraRig>();
