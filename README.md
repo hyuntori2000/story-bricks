@@ -276,6 +276,10 @@ The Unity scene is `Assets/Scenes/PhysicalStoryDemo.unity`. The main Android pac
 
 The scripts accept `UNITY_EDITOR` and `ADB` overrides. Normal builds preserve the shared XR rig and existing scene. Wear and unlock the headset, accept required system permissions, and confirm hand tracking before beginning.
 
+### Restart without rebuilding
+
+On macOS, double-click `Tools/restart-quest.command` (or run `bash Tools/restart-quest.command`). Connect one authorized Quest by USB first. The launcher starts missing Mac services using the existing local configuration, restores both USB routes, and restarts the installed application. It does not rebuild or reinstall the APK. Active app progress resets; saved stories and movies remain. Keep USB connected during the live experience. With several devices attached, pass the desired Quest serial. Startup logs are stored under ignored `runtime/launcher/`.
+
 ## Demo walkthrough
 
 A reviewer can explore the project in two stages:
