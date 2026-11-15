@@ -12,6 +12,28 @@ namespace BrailleSoundDemo.Presentation
     {
         enum Action { None, Home, Create }
 
+        // Kept independent of the tracking SDK so input ownership can be checked offline.
+        public struct ActionPointer
+        {
+            bool released, ownsPress;
+            float releaseUntil;
+            public bool Pressed { get; private set; }
+            public bool BlocksCapture(float now) => ownsPress || now < releaseUntil;
+
+            public bool Observe(float now, bool valid, bool nativePinch, float strength, bool overAction)
+            {
+                bool pressed = valid && (nativePinch || strength >= (Pressed ? .4f : .75f));
+                bool rising = valid && released && pressed && !Pressed;
+                if (ownsPress && !pressed) { ownsPress = false; releaseUntil = now + .2f; }
+                if (!valid) released = false;
+                else if (!pressed) released = true;
+                Pressed = pressed;
+                bool clicked = rising && overAction;
+                if (clicked) ownsPress = true;
+                return clicked;
+            }
+        }
+
         sealed class Button
         {
             public Transform hitArea;
@@ -26,7 +48,7 @@ namespace BrailleSoundDemo.Presentation
         static readonly Color DisabledColor = new Color(.09f, .12f, .14f);
         readonly List<Button> buttons = new List<Button>();
         readonly List<Material> paintedMaterials = new List<Material>();
-        readonly bool[] wasPressed = new bool[4], sawRelease = new bool[4];
+        readonly ActionPointer[] pointers = new ActionPointer[4];
         readonly Button[] recentTargets = new Button[4];
         readonly float[] recentTargetTimes = new float[4];
         readonly LineRenderer[] rays = new LineRenderer[4];
@@ -39,7 +61,6 @@ namespace BrailleSoundDemo.Presentation
         Material material;
         Texture2D homeTexture, createStoryTexture;
         Font font;
-        bool uiPressHeld;
         float releaseGraceUntil, nextHandSearch;
         string notice = "";
 
@@ -84,12 +105,12 @@ namespace BrailleSoundDemo.Presentation
             material = new Material(Shader.Find("Unlit/Color"));
             font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             visualRoot = NewRoot("Session menu", rig.centerEyeAnchor, new Vector3(0, 0, .8f));
-            actionRoot = NewRoot("Story actions", visualRoot, new Vector3(.215f, .20f, 0));
+            actionRoot = NewRoot("Story actions", visualRoot, new Vector3(-.25f, .30f, 0));
             homeTexture = Resources.Load<Texture2D>("StoryBricks/Buttons/home");
             createStoryTexture = Resources.Load<Texture2D>("StoryBricks/Buttons/create_story");
-            AddPaintedButton(actionRoot, "Home", Action.Home, new Vector3(-.10f, 0, 0), homeTexture);
-            AddPaintedButton(actionRoot, "Create Story", Action.Create, new Vector3(.10f, 0, 0), createStoryTexture);
-            message = Label(actionRoot, "", new Vector3(0, -.075f, -.01f), .014f);
+            AddPaintedButton(actionRoot, "Home", Action.Home, new Vector3(-.065f, 0, 0), homeTexture);
+            AddPaintedButton(actionRoot, "Create Story", Action.Create, new Vector3(.065f, 0, 0), createStoryTexture);
+            message = Label(actionRoot, "", new Vector3(0, -.05f, -.01f), .014f);
 
             for (int i = 0; i < rays.Length; i++)
             {
@@ -159,12 +180,12 @@ namespace BrailleSoundDemo.Presentation
 
         void AddPaintedButton(Transform parent, string text, Action action, Vector3 position, Texture2D texture)
         {
-            const float width = .185f;
+            const float width = .115f;
             var shader = Resources.Load<Shader>("WordImageAlpha");
             if (texture == null || shader == null)
             {
                 Debug.LogError("[SessionFinishMenu] Missing painted button asset: " + text);
-                AddButton(parent, text, action, position, new Vector2(width, .089f));
+                AddButton(parent, text, action, position, new Vector2(width, .055f));
                 return;
             }
             // The PNG includes its label. A separate, full rectangular target keeps
@@ -200,7 +221,8 @@ namespace BrailleSoundDemo.Presentation
             {
                 if(visualRoot!=null) visualRoot.gameObject.SetActive(false);
                 foreach(var ray in rays) if(ray!=null) ray.enabled=false;
-                uiPressHeld=false;
+                System.Array.Clear(pointers, 0, pointers.Length);
+                System.Array.Clear(recentTargets, 0, recentTargets.Length);
                 coordinator.SetFinishMenuOpen(false);
                 return;
             }
@@ -209,24 +231,18 @@ namespace BrailleSoundDemo.Presentation
             Refresh();
             if (Time.unscaledTime >= nextHandSearch)
             {
-                if (hands[0] == null && rig.leftHandAnchor != null) hands[0] = rig.leftHandAnchor.GetComponentInChildren<OVRHand>(true);
-                if (hands[1] == null && rig.rightHandAnchor != null) hands[1] = rig.rightHandAnchor.GetComponentInChildren<OVRHand>(true);
+                hands[0] = FindActiveHand(rig.leftHandAnchor, hands[0]);
+                hands[1] = FindActiveHand(rig.rightHandAnchor, hands[1]);
                 nextHandSearch = Time.unscaledTime + 1;
             }
 
-            bool hovering = false, anyPressed = false;
+            bool ownsInput = false;
             Action selected = Action.None;
             foreach (var button in buttons) button.hovered = false;
             for (int i = 0; i < rays.Length; i++)
             {
-                bool valid = ReadPointer(i, out var ray, out bool pressed, out bool inputValid);
-                anyPressed |= pressed;
-                // Pinching can briefly shift/invalidate the aim ray. Keep the
-                // released hand's recent target without accepting lost tracking.
-                bool rising = inputValid && sawRelease[i] && pressed && !wasPressed[i];
-                if (inputValid && !pressed) sawRelease[i] = true;
-                if (!inputValid) { sawRelease[i] = false; recentTargets[i] = null; }
-                wasPressed[i] = pressed;
+                bool valid = ReadPointer(i, out var ray, out bool nativePinch, out float strength, out bool inputValid);
+                if (!inputValid) recentTargets[i] = null;
                 Button target = null;
                 float distance = float.PositiveInfinity;
                 if (valid)
@@ -236,36 +252,36 @@ namespace BrailleSoundDemo.Presentation
                         { target = button; distance = hit; }
                 }
                 bool overUi = !float.IsPositiveInfinity(distance);
-                hovering |= overUi;
                 rays[i].enabled = overUi;
                 if (overUi)
                 {
                     rays[i].SetPosition(0, ray.origin);
                     rays[i].SetPosition(1, ray.GetPoint(distance));
-                    if (pressed) uiPressHeld = true;
                 }
+                var pressedTarget = target;
+                // A tracked pinch can briefly invalidate/move only its pointing ray.
+                if (pressedTarget == null && Time.unscaledTime - recentTargetTimes[i] <= .35f)
+                    pressedTarget = recentTargets[i];
+                bool hasTarget = pressedTarget != null && pressedTarget.hitArea.gameObject.activeInHierarchy;
+                bool clicked = pointers[i].Observe(Time.unscaledTime, inputValid, nativePinch, strength, hasTarget);
+                ownsInput |= pointers[i].BlocksCapture(Time.unscaledTime);
                 if (target != null)
                 {
                     target.hovered = true;
-                    if (target.enabled && inputValid && !pressed)
+                    if (inputValid && !pointers[i].Pressed)
                     { recentTargets[i] = target; recentTargetTimes[i] = Time.unscaledTime; }
                 }
-                var pressedTarget = target;
-                if (pressedTarget == null && Time.unscaledTime - recentTargetTimes[i] <= .2f)
-                    pressedTarget = recentTargets[i];
-                if (rising && pressedTarget != null && pressedTarget.enabled &&
-                    pressedTarget.hitArea.gameObject.activeInHierarchy && selected == Action.None)
+                if (clicked && pressedTarget.enabled && selected == Action.None)
                 {
                     selected = pressedTarget.action;
-                    uiPressHeld = true;
                     Debug.Log("[SessionFinishMenu] Selected " + selected + " pointer=" + i);
                 }
             }
             // Keep the capture gate closed through the release frame. The capture
             // driver then requires a fresh release and two fresh pinches.
-            if (uiPressHeld && !anyPressed)
-            { uiPressHeld = false; releaseGraceUntil = Time.unscaledTime + .2f; }
-            coordinator.SetFinishMenuOpen(hovering || uiPressHeld || Time.unscaledTime < releaseGraceUntil);
+            // Hover is visual only. Only the hand that pressed a button owns input;
+            // an unrelated pinch with the other hand cannot extend the UI gate.
+            coordinator.SetFinishMenuOpen(ownsInput || Time.unscaledTime < releaseGraceUntil);
             if (selected != Action.None) Activate(selected);
             foreach (var button in buttons)
             {
@@ -277,10 +293,25 @@ namespace BrailleSoundDemo.Presentation
             }
         }
 
-        bool ReadPointer(int index, out Ray ray, out bool pressed, out bool inputValid)
+        static OVRHand FindActiveHand(Transform anchor, OVRHand current)
+        {
+            if (current != null && current.isActiveAndEnabled && current.IsTracked && current.IsDataValid) return current;
+            if (anchor == null) return null;
+            OVRHand active = null;
+            foreach (var candidate in anchor.GetComponentsInChildren<OVRHand>(true))
+            {
+                if (!candidate.isActiveAndEnabled) continue;
+                if (candidate.IsTracked && candidate.IsDataValid) return candidate;
+                if (active == null) active = candidate;
+            }
+            return active;
+        }
+
+        bool ReadPointer(int index, out Ray ray, out bool pressed, out float strength, out bool inputValid)
         {
             ray = default;
             pressed = false;
+            strength = 0;
             inputValid = false;
             Transform pose;
             if (index < 2)
@@ -290,6 +321,9 @@ namespace BrailleSoundDemo.Presentation
                     hand.IsSystemGestureInProgress || hand.PoseSourceInferred) return false;
                 inputValid = true;
                 pressed = hand.GetFingerIsPinching(OVRHand.HandFinger.Index);
+                if (hand.GetFingerConfidence(OVRHand.HandFinger.Index) == OVRHand.TrackingConfidence.High &&
+                    hand.GetFingerConfidence(OVRHand.HandFinger.Thumb) == OVRHand.TrackingConfidence.High)
+                    strength = hand.GetFingerPinchStrength(OVRHand.HandFinger.Index);
                 if (!hand.IsPointerPoseValid) return false;
                 pose = hand.PointerPose;
             }
@@ -361,18 +395,20 @@ namespace BrailleSoundDemo.Presentation
         void OnGUI()
         {
             if (coordinator == null || !coordinator.ExperienceActive || XRSettings.isDeviceActive) return;
-            if (GUI.Button(new Rect(Screen.width - 300, 20, 120, 58), "Home")) Activate(Action.Home);
+            if (GUI.Button(new Rect(20, 20, 90, 42), "Home")) Activate(Action.Home);
             bool allowed = GUI.enabled;
             GUI.enabled = allowed && !StorySubmitted && coordinator.SavedWordCount > 0;
-            if (GUI.Button(new Rect(Screen.width - 170, 20, 150, 58), "Create Story")) Activate(Action.Create);
+            if (GUI.Button(new Rect(120, 20, 120, 42), "Create Story")) Activate(Action.Create);
             GUI.enabled = allowed;
-            if (!string.IsNullOrEmpty(notice)) GUI.Label(new Rect(Screen.width - 300, 82, 280, 60), notice);
+            if (!string.IsNullOrEmpty(notice)) GUI.Label(new Rect(20, 66, 220, 60), notice);
         }
 
         void OnDisable()
         {
             if (visualRoot != null) visualRoot.gameObject.SetActive(false);
             foreach (var ray in rays) if (ray != null) ray.enabled = false;
+            System.Array.Clear(pointers, 0, pointers.Length);
+            System.Array.Clear(recentTargets, 0, recentTargets.Length);
             coordinator?.SetFinishMenuOpen(false);
         }
 

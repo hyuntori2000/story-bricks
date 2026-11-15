@@ -32,6 +32,7 @@ namespace BrailleSoundDemo.Editor
             ValidateIntegratedView(view);
             SaveMenuPreview(view);
             Tests.GuidedDialogueVerification.Run();
+            Tests.SessionActionInputVerification.Run();
             BuildPhysicalStoryDemo.BuildQuest();
         }
 
