@@ -81,6 +81,7 @@ public class ViewerFlow : MonoBehaviour
     public event Action JudyRequested;
     public event Action BackToMenuRequested;
     public event Action ReplayRequested;
+    public event Action PreviousStoriesRequested;
     JudyStoryPlayer judyPlayer;
     AudioSource interfaceAudio;
     Coroutine highlight;
@@ -107,7 +108,12 @@ public class ViewerFlow : MonoBehaviour
         SetButtonCopy(newStoryButton, "Create Your World", "Build your own story");
         SetButtonCopy(savedStoryButton, "Judy's Story", "Watch her world come to life");
         if (savedStoryButton != null) savedStoryButton.interactable = true;
-        if (tutorialButton != null) tutorialButton.gameObject.SetActive(false);
+        if (tutorialButton != null)
+        {
+            tutorialButton.gameObject.SetActive(true);
+            tutorialButton.interactable = true;
+            SetButtonCopy(tutorialButton, "See previous story", "Watch your saved animations");
+        }
         Bloom(menu);
     }
 
@@ -119,6 +125,10 @@ public class ViewerFlow : MonoBehaviour
     public void OnSavedStory()
     {
         if (state == State.Menu && !pressing) StartCoroutine(Choose(savedStoryButton, JudyRequested));
+    }
+    public void OnPreviousStories()
+    {
+        if (state == State.Menu && !pressing) StartCoroutine(Choose(tutorialButton, PreviousStoriesRequested));
     }
     public void OnWatchAgain()
     {
@@ -144,7 +154,7 @@ public class ViewerFlow : MonoBehaviour
 
     public void BeginRoute(string workspaceId)
     {
-        if (workspaceId != "demo" && workspaceId != "judy")
+        if (workspaceId != "demo" && workspaceId != "judy" && workspaceId != "library")
             throw new ArgumentException("Unknown presentation route.", nameof(workspaceId));
         ResetAll();
         WorkspaceId = workspaceId;
@@ -174,7 +184,7 @@ public class ViewerFlow : MonoBehaviour
 
     public void ShowLiveVideo(bool visible)
     {
-        if (WorkspaceId != "demo") return;
+        if (WorkspaceId != "demo" && WorkspaceId != "library") return;
         Dry(ready); Dry(caption); Dry(subtitle); Dry(end);
         SetBusy(false); SetListening(false);
         if (visible) { state = State.Playing; Bloom(videoGroup); }
@@ -183,7 +193,7 @@ public class ViewerFlow : MonoBehaviour
 
     public void ShowLiveEnd(string title)
     {
-        if (WorkspaceId != "demo") return;
+        if (WorkspaceId != "demo" && WorkspaceId != "library") return;
         ShowEndCard(string.IsNullOrWhiteSpace(title) ? "Your story" : title);
     }
 

@@ -98,6 +98,35 @@ class StoryVideoRoutes(unittest.TestCase):
             self.assertEqual(json.load(response)["code"], "origin_rejected")
         self.assertEqual(self.submissions, [])
 
+    def test_saved_library_lists_and_streams_archive_without_generation(self):
+        owner, job_id, session = "c" * 32, "d" * 32, "e" * 32
+        folder = self.backend.workspace_directory / "create-world" / "sessions" / owner / "videos" / job_id
+        folder.mkdir(parents=True)
+        movie = (24).to_bytes(4, "big") + b"ftypisom" + bytes(12)
+        (folder / "story.mp4").write_bytes(movie)
+        route = "/story-videos/" + job_id + ".mp4"
+        metadata = dict(workspaceId="demo", experienceSessionId=owner, sessionId=session,
+                        jobId=job_id, status="ready", createdAtUtc="2026-11-15T12:00:00+00:00",
+                        videoPath=route, shots=[{"duration": 10}, {"duration": 10}])
+        (folder / "job.json").write_text(json.dumps(metadata))
+
+        with urlopen(self.base + "/story-library", timeout=2) as response:
+            listing = json.load(response)
+        self.assertEqual(listing["schemaVersion"], 1)
+        self.assertEqual(len(listing["stories"]), 1)
+        self.assertEqual(listing["stories"][0]["id"], job_id)
+        self.assertEqual(listing["stories"][0]["videoPath"], route)
+        self.assertTrue(self.backend.story_library.index.is_file())
+        self.assertEqual(self.submissions, [])
+
+        # Saved movies remain playable when the generation provider is not configured.
+        self.backend.video_jobs = None
+        with urlopen(Request(self.base + route, headers={"Range": "bytes=0-11"}), timeout=2) as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.headers.get_content_type(), "video/mp4")
+            self.assertEqual(response.read(), movie[:12])
+        self.assertEqual(self.submissions, [])
+
 
 if __name__ == "__main__":
     unittest.main()

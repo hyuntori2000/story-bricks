@@ -50,12 +50,14 @@ def validate_context(context, operation):
     if not isinstance(words, list) or not isinstance(turns, list):
         raise GuidedError("invalid_context", "Provide ordered words and dialogue exchanges.")
     event = context.get("dialogueEvent")
-    if operation == "dialogue" and event not in ("start", "word", "answer"):
-        raise GuidedError("invalid_dialogue_event", "dialogueEvent must be start, word or answer.")
+    if operation == "dialogue" and event not in ("start", "word", "answer", "finish"):
+        raise GuidedError("invalid_dialogue_event", "dialogueEvent must be start, word, answer or finish.")
     if operation == "dialogue" and event == "start":
         if words or turns or context.get("currentWord") not in (None, "") or context["finishRequested"]:
             raise GuidedError("invalid_context", "The opening prompt requires an empty new conversation.")
         return context
+    if operation == "dialogue" and event == "finish" and not context["finishRequested"]:
+        raise GuidedError("finish_required", "A final question requires a recognized period.")
     if not words:
         raise GuidedError("invalid_context", "At least one accepted word is required.")
     groups = set()
@@ -121,15 +123,20 @@ def spoken_answer_count(context):
     return sum(turn.get("inputType") == "speak_answer" and turn.get("wordIndex") == index for turn in context["turns"])
 
 
-def allowed_next_inputs(context):
+def dialogue_phase(context):
+    """The demo's sequence is deterministic; only its story wording is generated."""
     event = context["dialogueEvent"]
     if event == "start":
-        return ["build_word"]
+        return "introduction"
+    if event == "finish" or (event == "word" and context["words"][-1].get("finishMarker", False)):
+        return "final_question"
     if event == "word":
-        # Every newly captured word opens a conversation, including the first.
-        # Ask for the next related word only after a real spoken answer is saved.
-        return ["speak_answer"]
-    return ["build_word"] if spoken_answer_count(context) >= 2 else ["speak_answer", "build_word"]
+        return "word_question" if len(context["words"]) % 2 else "word_closing"
+    return "related_word"
+
+
+def allowed_next_inputs(context):
+    return ["speak_answer"] if dialogue_phase(context) in ("word_question", "final_question") else ["build_word"]
 
 
 def response_schema(operation, context):
@@ -146,22 +153,27 @@ def dialogue_reply(value, context):
     if not isinstance(value, dict) or set(value) != {"question", "nextInput"}:
         raise GuidedError("invalid_dialogue_response", "Dialogue generation returned an invalid response object.", 502)
     question, next_input = value["question"], value["nextInput"]
+    closing = dialogue_phase(context) == "word_closing"
     if (not isinstance(question, str) or not question.strip() or len(question) > 450 or
-            len(question.split()) > 35 or question.count("?") != 1 or not question.strip().endswith("?") or
-            "." in question or "!" in question or
-            "\n" in question or "\r" in question or
-            re.search(r"\b(?:build the word|build a word for that idea|say the sentence)\b", question, re.IGNORECASE)):
+            len(question.split()) > 35 or "\n" in question or "\r" in question or
+            re.search(r"\b(?:build the word|build a word for that idea|say the sentence|press create story|keep building)\b", question, re.IGNORECASE)):
+        raise GuidedError("invalid_dialogue_question", "Dialogue must contain one short reply without input directions.", 502)
+    question = question.strip()
+    if closing:
+        if not re.fullmatch(r"[^.!?]+[.!]", question):
+            raise GuidedError("invalid_dialogue_question", "A second word needs one short closing statement, not another question.", 502)
+    elif question.count("?") != 1 or not question.endswith("?") or "." in question or "!" in question:
         raise GuidedError("invalid_dialogue_question", "Dialogue generation must return one short question without input directions.", 502)
     if next_input not in allowed_next_inputs(context):
         raise GuidedError("invalid_dialogue_input", "Dialogue generation selected an unavailable input action.", 502)
-    question = question.strip()
     prefix = ""
     if context["dialogueEvent"] == "word":
-        # Build this from the accepted letters, not from model-generated prose.
-        # Preserve repeated letters; periods remain finish markers, never spoken letters.
         letters = re.findall(r"[A-Z]", context["currentWord"].upper())
         prefix = ", ".join(letters) + ". " + context["currentWord"].rstrip(".").capitalize() + "! "
-    directive = "Build a word for that idea." if next_input == "build_word" else "Say the sentence."
+    if closing:
+        directive = "Keep building another word, or press Create Story to make your story."
+    else:
+        directive = "Build a word for that idea." if next_input == "build_word" else "Say the sentence."
     spoken = prefix + question + " " + directive
     return {"question": question, "nextInput": next_input, "text": spoken, "spokenText": spoken, "turnId": context["turnId"]}
 

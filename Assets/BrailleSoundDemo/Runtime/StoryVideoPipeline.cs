@@ -101,6 +101,19 @@ namespace BrailleSoundDemo
             return true;
         }
 
+        /// <summary>Play an indexed Mac movie without creating a session or contacting a generator.</summary>
+        public bool BeginSaved(StoryLibraryItem item,Transform head,Func<bool> stillCurrent)
+        {
+            if(!isActiveAndEnabled || item==null || !item.Valid || head==null || stillCurrent==null || !stillCurrent()) return false;
+            CancelAll();
+            active=new Job {identity=new Request {workspaceId="demo",experienceSessionId=item.experienceSessionId,
+                sessionId=item.sessionId,requestId=Guid.NewGuid().ToString("N")},head=head,
+                stillCurrent=stillCurrent,generation=generation,deadline=Time.realtimeSinceStartupAsDouble+600};
+            SetStatus(active,"Loading your saved animation...","animation_ready");
+            StartCoroutine(DownloadAndPlay(active,item.videoPath));
+            return true;
+        }
+
         public void SetSpatialReady(bool ready)
         {
             if(ready && !spatialReady) recenter=true;
@@ -196,6 +209,13 @@ namespace BrailleSoundDemo
             bool directoryReady=true;
             try { Directory.CreateDirectory(directory); } catch(IOException) { directoryReady=false; } catch(UnauthorizedAccessException) { directoryReady=false; }
             if(!directoryReady) { Failed(job,"video_storage_unavailable");yield break; }
+            if(ValidMp4File(file))
+            {
+                savedVideoPath=file;
+                Debug.Log("[Story video] Reusing the downloaded movie for session="+job.identity.sessionId);
+                yield return PlayVideo(job,file);
+                yield break;
+            }
             job.temporaryPath=file+"."+job.identity.requestId+".partial";
             bool downloaded=false;
             for(int attempt=0;attempt<3 && Waiting(job);attempt++)

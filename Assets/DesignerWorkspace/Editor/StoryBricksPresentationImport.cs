@@ -102,12 +102,13 @@ public static class StoryBricksPresentationImport
             Bind(view.watchAgainButton, view.OnWatchAgain);
             Bind(view.doneButton, view.OnDone);
             Bind(view.restartButton, view.OnRestart);
+            Bind(view.tutorialButton, view.OnPreviousStories);
             for (int i = 0; i < view.tags.Length; i++)
             {
                 var button = view.tags[i].root.GetComponent<Button>();
                 if (button != null) UnityEventTools.AddIntPersistentListener(button.onClick, view.ToggleTag, i);
             }
-            if (view.tutorialButton != null) view.tutorialButton.gameObject.SetActive(false);
+            if (view.tutorialButton != null) view.tutorialButton.gameObject.SetActive(true);
             if (view.finishButton != null) view.finishButton.gameObject.SetActive(false);
             foreach (var hidden in new[] { view.hint, view.caption, view.subtitle, view.ready, view.end, view.pulse,
                 view.finish, view.fox, view.bricks, view.pinch, view.period, view.videoGroup })
@@ -119,6 +120,7 @@ public static class StoryBricksPresentationImport
             view.state = ViewerFlow.State.Menu;
             SetButtonCopy(view.newStoryButton, "Create Your World", "Build your own story");
             SetButtonCopy(view.savedStoryButton, "Judy's Story", "Watch Judy's world come alive");
+            SetButtonCopy(view.tutorialButton, "See previous story", "Watch your saved animations");
             SetButtonCopy(view.restartButton, "Create World", "Make a story of your own");
             SetButtonCopy(view.doneButton, "Menu", "Choose your next world");
 
@@ -138,6 +140,25 @@ public static class StoryBricksPresentationImport
             if (incoming.IsValid()) EditorSceneManager.CloseScene(incoming, true);
             AssetDatabase.DeleteAsset(Temporary);
         }
+    }
+
+    [MenuItem("Story Bricks/Connect previous story menu")]
+    public static void ConnectPreviousStoryMenu()
+    {
+        string path=Output+"/View.prefab";
+        var root=PrefabUtility.LoadPrefabContents(path);
+        try
+        {
+            var view=root.GetComponentInChildren<ViewerFlow>(true);
+            if(view==null || view.tutorialButton==null) throw new InvalidOperationException("The supplied third menu button is missing.");
+            view.tutorialButton.onClick=new Button.ButtonClickedEvent();
+            Bind(view.tutorialButton,view.OnPreviousStories);
+            SetButtonCopy(view.tutorialButton,"See previous story","Watch your saved animations");
+            view.tutorialButton.gameObject.SetActive(true);
+            PrefabUtility.SaveAsPrefabAsset(root,path);
+            Debug.Log("STORY_LIBRARY_MENU_CONNECTED");
+        }
+        finally { PrefabUtility.UnloadPrefabContents(root); }
     }
 
     static Vector2 ReadAuthoredCanvasSize(string contentSource)

@@ -777,7 +777,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &1803108166024995109
 RectTransform:
   m_ObjectHideFlags: 0
@@ -883,7 +883,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 3038433389390572792}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 6848567492966699470}
+        m_TargetAssemblyTypeName: ViewerFlow, Assembly-CSharp
+        m_MethodName: OnPreviousStories
+        m_Mode: 0
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName:
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument:
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &5946096685159651754
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9245,7 +9257,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Try a practice word
+  m_text: See previous story
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
   m_sharedMaterial: {fileID: 3714077095682214142, guid: 4f00b6eaa3af74f19bf9ee9c6fb57c8f, type: 2}
@@ -9275,9 +9287,9 @@ MonoBehaviour:
   m_fontSize: 15
   m_fontSizeBase: 15
   m_fontWeight: 400
-  m_enableAutoSizing: 0
-  m_fontSizeMin: 18
-  m_fontSizeMax: 72
+  m_enableAutoSizing: 1
+  m_fontSizeMin: 10
+  m_fontSizeMax: 15
   m_fontStyle: 0
   m_HorizontalAlignment: 1
   m_VerticalAlignment: 512
@@ -10265,7 +10277,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Learn how with the word FOX
+  m_text: Watch your saved animations
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: db01ab6b857e6474593a07930f7a4221, type: 2}
   m_sharedMaterial: {fileID: -2102801155572039195, guid: db01ab6b857e6474593a07930f7a4221, type: 2}

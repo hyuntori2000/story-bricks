@@ -30,6 +30,8 @@ import wave
 from workspace_storage import (StorageError, SessionStateStore, RequestArchive, owner_from,
                                owner_from_query, session_directory, read_json, write_json)
 import guided_dialogue
+import word_effects
+from story_library import StoryLibrary, LibraryError
 from comfy_word_images import ComfyCardProvider, WordImageJobs, ImageError
 from comfy_story_videos import ComfyVideoProvider, StoryVideoJobs, VideoError
 
@@ -139,8 +141,31 @@ class ElevenLabsEffects:
     sample_rate = 24000
     maximum_response_bytes = 1024 * 1024
 
-    def __init__(self, api_key: str, model: str = "eleven_text_to_sound_v3"):
+    def __init__(self, api_key: str, model: str = "eleven_text_to_sound_v3", plan_provider=None):
         self._api_key, self.model = api_key, model
+        self.plan_provider = plan_provider
+        self.plans = {}
+        self.last_audio_metrics = {}
+        self.last_prompt = ""
+
+    def plan(self, word):
+        key = word_effects.subject(word)
+        known = word_effects.known_plan(key)
+        if known is not None:
+            return known
+        if key in self.plans:
+            return self.plans[key]
+        if self.plan_provider is not None:
+            try:
+                plan = word_effects.checked_plan(self.plan_provider(key))
+                if len(self.plans) >= 256:
+                    self.plans.pop(next(iter(self.plans)))
+                self.plans[key] = plan
+                return plan
+            except (BackendError, ValueError, TypeError):
+                # An optional effect must not invent a sound when classification fails.
+                pass
+        return {"audible": False, "description": "", "source": "unavailable"}
 
     @property
     def configured(self) -> bool:
@@ -151,16 +176,12 @@ class ElevenLabsEffects:
             raise BackendError("sfx_key_missing", "Sound effects are not configured on the Mac backend.", 503)
         if self.model not in ("eleven_text_to_sound_v2", "eleven_text_to_sound_v3"):
             raise BackendError("sfx_model_invalid", "The configured sound-effect model is not supported.", 503)
-        prompt = ("Subject: " + word.rstrip(".").replace(".", " ") + ". "
-                  "For a clearly recognizable sound source, make its characteristic sound "
-                  "(animal call, instrument notes, engine, wind). For people, quiet creatures or "
-                  "objects without an inherent sound, make only a brief, very quiet non-vocal hum "
-                  "with a soft fade. Never invent speech, breathing, footsteps or handling sounds "
-                  "for quiet subjects. No narration, singing, background music or cinematic effects.")
-        if context:
-            prompt += " Story context: " + context
+        plan = self.plan(word)
+        prompt = word_effects.effect_prompt(plan)
+        self.last_prompt = prompt
+        self.last_audio_metrics = {}
         payload = {"text": prompt[:450], "duration_seconds": self.duration_seconds,
-                   "loop": False, "prompt_influence": 0.5, "model_id": self.model}
+                   "loop": False, "prompt_influence": 0.7, "model_id": self.model}
         request = Request("https://api.elevenlabs.io/v1/sound-generation?output_format=wav_24000",
                           data=json.dumps(payload).encode("utf-8"), method="POST",
                           headers={"xi-api-key": self._api_key, "Content-Type": "application/json", "Accept": "audio/wav"})
@@ -195,7 +216,11 @@ class ElevenLabsEffects:
                 if sys.byteorder != "little":
                     mono.byteswap()
                 pcm = mono.tobytes()
+            pcm, self.last_audio_metrics = word_effects.level_pcm(pcm, plan["audible"])
+            self.last_audio_metrics["promptSource"] = plan["source"]
             return pcm_wav(pcm, rate=self.sample_rate)
+        except word_effects.TooQuietError:
+            raise BackendError("sfx_audio_too_quiet", "The generated effect was almost silent. Dialogue can continue.", 502) from None
         except (ValueError, wave.Error, EOFError, OSError):
             raise BackendError("sfx_audio_invalid", "ElevenLabs returned an unsupported or incomplete sound-effect WAV.", 502) from None
 
@@ -235,8 +260,9 @@ def narrative_context(context: dict) -> dict:
                          finishRequested=context["finishRequested"])
         for target, source in zip(projected["turns"], context["turns"]):
             target.update(turnId=source["turnId"], inputType=source["inputType"])
-        if context.get("dialogueEvent") in ("start", "word", "answer"):
+        if context.get("dialogueEvent") in ("start", "word", "answer", "finish"):
             projected["allowedNextInputs"] = guided_dialogue.allowed_next_inputs(context)
+            projected["dialoguePhase"] = guided_dialogue.dialogue_phase(context)
             projected["spokenAnswersForCurrentWord"] = guided_dialogue.spoken_answer_count(context)
     return projected
 
@@ -299,14 +325,15 @@ class OpenAIUpstream:
 
     def generate_structured(self, operation: str, instructions: str, context: dict) -> dict:
         """One Responses call with strict output shape; local rules validate meaning."""
+        sound_plan = operation == "sound_effect"
         request = {
             "model": self.settings.text_model,
             "instructions": instructions,
-            "input": json.dumps(narrative_context(context), ensure_ascii=False, separators=(",", ":")),
+            "input": json.dumps({"word": context["word"]} if sound_plan else narrative_context(context), ensure_ascii=False, separators=(",", ":")),
             "reasoning": {"effort": "low"},
-            "max_output_tokens": 1800 if operation == "dialogue" else 4000,
+            "max_output_tokens": 500 if sound_plan else 1800 if operation == "dialogue" else 4000,
             "text": {"format": {"type": "json_schema", "name": "guided_" + operation,
-                                  "strict": True, "schema": guided_dialogue.response_schema(operation, context)}},
+                                  "strict": True, "schema": word_effects.PLAN_SCHEMA if sound_plan else guided_dialogue.response_schema(operation, context)}},
             "store": False,
         }
         raw = self._http("responses", json.dumps(request).encode(), "application/json", 45, 1024 * 1024)
@@ -595,6 +622,7 @@ class Backend:
         self.image_jobs = image_jobs
         self.video_jobs = video_jobs
         self.workspace_directory = Path(workspace_directory) if workspace_directory is not None else Path(audio_directory).parent / "workspaces"
+        self.story_library = StoryLibrary(self.workspace_directory)
         self.audio = AudioStore(audio_directory, workspace_directory=self.workspace_directory)
         self.session_states = SessionStateStore(self.workspace_directory)
         self.archive = RequestArchive(self.workspace_directory)
@@ -617,7 +645,7 @@ class Backend:
                 "soundEffectsDurationSeconds": getattr(self.effects, "duration_seconds", 3.0),
                 "workspaceStorageEnabled": True, "workspaceDirectory": str(self.workspace_directory),
                 "sessionStateMaxBytes": MAX_SESSION_STATE_BYTES, "unscopedStorage": "legacy",
-                "guidedDialogueEnabled": True, "storySentenceCount": 7,
+                "guidedDialogueEnabled": True, "storySentenceCount": 7, "savedStoryLibraryEnabled": True,
                 "wordImages": self.image_jobs.health() if self.image_jobs else {"configured": False},
                 "storyVideos": self.video_jobs.health() if self.video_jobs else {"configured": False}}
 
@@ -765,7 +793,9 @@ class Backend:
                 audio = measured("soundEffectMs", lambda: self.effects.generate(*context))
                 audio_path = measured("audioStoreMs", lambda: save_audio(audio))
                 result.update(audioPath=audio_path, provider="ElevenLabs", model=self.effects.model,
-                              durationSeconds=self.effects.duration_seconds, audioFormat="PCM16 mono 24000 Hz")
+                              durationSeconds=self.effects.duration_seconds, audioFormat="PCM16 mono 24000 Hz",
+                              audioMetrics=getattr(self.effects, "last_audio_metrics", {}),
+                              effectPrompt=getattr(self.effects, "last_prompt", ""))
             elif operation == "dialogue":
                 if context["dialogueEvent"] == "start":
                     reply = {"text": guided_dialogue.INTRO, "spokenText": guided_dialogue.INTRO,
@@ -914,14 +944,16 @@ def make_server(backend: Backend, port: int = 8766) -> ThreadingHTTPServer:
                 parsed = urlsplit(self.path)
                 if parsed.path == "/health":
                     self.send_json(200, backend.health())
+                elif parsed.path == "/story-library":
+                    self.send_json(200, backend.story_library.listing())
                 elif parsed.path == "/story-video":
                     if backend.video_jobs is None:
                         raise BackendError("video_unavailable", "Story animations are not configured.", 503)
                     self.send_json(200, backend.video_jobs.status(parse_qs(parsed.query, keep_blank_values=True)))
                 elif re.fullmatch(r"/story-videos/[0-9a-f]{32}\.mp4", parsed.path):
-                    if backend.video_jobs is None:
-                        raise BackendError("video_unavailable", "Story animations are not configured.", 503)
-                    self.send_video(backend.video_jobs.video_file(parsed.path))
+                    path = (backend.video_jobs.video_file(parsed.path) if backend.video_jobs is not None
+                            else backend.story_library.video_file(parsed.path))
+                    self.send_video(path)
                 elif parsed.path == "/word-image":
                     if backend.image_jobs is None:
                         raise BackendError("image_unavailable", "Word images are not configured.", 503)
@@ -939,6 +971,8 @@ def make_server(backend: Backend, port: int = 8766) -> ThreadingHTTPServer:
             except ImageError as error:
                 self.error_result(BackendError(error.code, error.message, error.status))
             except VideoError as error:
+                self.error_result(BackendError(error.code, error.message, error.status))
+            except LibraryError as error:
                 self.error_result(BackendError(error.code, error.message, error.status))
 
         def do_POST(self):
@@ -983,11 +1017,13 @@ def main():
         prompts = json.loads((HERE / "prompts.json").read_text(encoding="utf-8"))
         for kind in ("question", "story", "dialogue", "guided_story"):
             checked_text(prompts.get(kind), kind + " prompt", 12000)
-        effects = ElevenLabsEffects(settings.elevenlabs_api_key, settings.sound_effect_model)
+        upstream = OpenAIUpstream(settings)
+        effects = ElevenLabsEffects(settings.elevenlabs_api_key, settings.sound_effect_model,
+                                    lambda word: upstream.generate_structured("sound_effect", word_effects.PLAN_INSTRUCTIONS, {"word": word}))
         workspace_directory = PROJECT / "runtime" / "workspaces"
         images = WordImageJobs(ComfyCardProvider(settings.comfy_api_key, settings.comfy_base_url), workspace_directory)
         videos = StoryVideoJobs(ComfyVideoProvider(settings.comfy_api_key, settings.comfy_base_url), workspace_directory)
-        backend = Backend(OpenAIUpstream(settings), HERE / "runtime/audio", prompts, effects=effects,
+        backend = Backend(upstream, HERE / "runtime/audio", prompts, effects=effects,
                           workspace_directory=workspace_directory, image_jobs=images, video_jobs=videos)
         server = make_server(backend, args.port)
     except (OSError, ValueError, BackendError, ImageError, VideoError):

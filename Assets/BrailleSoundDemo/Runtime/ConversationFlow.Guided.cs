@@ -8,7 +8,7 @@ namespace BrailleSoundDemo
     public sealed partial class ConversationFlow
     {
         const string BuildWordInput = "build_word", SpeakAnswerInput = "speak_answer";
-        bool guidedEnabled, guidedRequestPending, guidedFinishPending;
+        bool guidedEnabled, guidedRequestPending, guidedFinishPending, guidedFinalQuestionActive;
         string guidedNextInput = "", guidedPromptTurnId = "", guidedRequestTurnId = "";
         readonly HashSet<string> guidedSoundWords = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<AudioSource> guidedEffectSources = new HashSet<AudioSource>();
@@ -17,6 +17,7 @@ namespace BrailleSoundDemo
         int guidedEffectGeneration;
 
         public bool GuidedDialogueEnabled => guidedEnabled && PhysicalWordsEnabled;
+        public bool PeriodQuestionPending => GuidedDialogueEnabled && guidedFinalQuestionActive;
         public string ExpectedInput => GuidedDialogueEnabled ? guidedNextInput : CanAnswer ? SpeakAnswerInput : BuildWordInput;
         public bool ReadyForPhysicalWord => GuidedDialogueEnabled && !guidedRequestPending && !liveAnswerPending &&
             !storyRequested && guidedNextInput == BuildWordInput &&
@@ -41,11 +42,11 @@ namespace BrailleSoundDemo
             return true;
         }
 
-        /// <summary>A queue delimiter suppresses new follow-ups; only its queue position requests the story.</summary>
+        /// <summary>A queue delimiter suppresses the next build invitation; its queue position starts the final question.</summary>
         public void SetFinishPending(bool pending = true)
         {
             if (!GuidedDialogueEnabled || storyRequested) return;
-            guidedFinishPending = pending || (Record?.words.Count > 0 && Record.words[Record.words.Count - 1].finishMarker);
+            guidedFinishPending = pending || guidedFinalQuestionActive || physicalFinishRequested || (Record?.words.Count > 0 && Record.words[Record.words.Count - 1].finishMarker);
         }
 
         void SaveGuidedBuildResponse(WordRecord word)
@@ -62,6 +63,11 @@ namespace BrailleSoundDemo
         {
             if (!Valid(token) || !GuidedDialogueEnabled || provider is not IDialogueStoryProvider dialogue) yield break;
             guidedRequestPending = true; guidedNextInput = "";
+            bool finalQuestion = dialogueEvent == "finish" ||
+                (dialogueEvent == "word" && index >= 0 && Record.words[index].finishMarker);
+            if (finalQuestion) { guidedFinalQuestionActive = true; guidedFinishPending = true; }
+            string requiredInput = dialogueEvent == "start" || dialogueEvent == "answer" ||
+                (dialogueEvent == "word" && !finalQuestion && index % 2 == 1) ? BuildWordInput : SpeakAnswerInput;
             var context = CaptureContext(index >= 0 ? Record.words[index].word : "");
             context.dialogueEvent = dialogueEvent;
             guidedRequestTurnId = context.turnId;
@@ -78,8 +84,8 @@ namespace BrailleSoundDemo
             while (Valid(token) && !job.done) yield return null;
             if (!Valid(token) || guidedRequestTurnId != context.turnId) yield break;
             guidedRequestPending = false; guidedRequestTurnId = "";
-            // A period can arrive while the next follow-up is in flight. The saved
-            // answer is sufficient, even if that now-obsolete request fails.
+            // A period can arrive while the related-word invitation is in flight. Keep
+            // the saved answer and let the queue boundary request the final question.
             if (dialogueEvent == "answer" && guidedFinishPending)
             {
                 if (!Valid(token)) yield break;
@@ -92,9 +98,7 @@ namespace BrailleSoundDemo
                 yield break;
             }
             if (reply.turnId != context.turnId ||
-                (reply.nextInput != BuildWordInput && reply.nextInput != SpeakAnswerInput) ||
-                string.IsNullOrWhiteSpace(reply.text) || (dialogueEvent == "start" && reply.nextInput != BuildWordInput) ||
-                (dialogueEvent == "word" && reply.nextInput != SpeakAnswerInput))
+                reply.nextInput != requiredInput || string.IsNullOrWhiteSpace(reply.text))
             {
                 RecoverGuidedDialogueFailure("dialogue", reply, "The dialogue reply has an invalid turn or input instruction.");
                 yield break;
@@ -132,8 +136,8 @@ namespace BrailleSoundDemo
             guidedNextInput = BuildWordInput; guidedRequestPending = false;
             if (!Save()) return;
             SetState(ConversationState.Silent, guidedFinishPending
-                ? "Your answer is saved. Finishing the captured word queue."
-                : string.IsNullOrEmpty(pendingQuestion) ? "Build the next word, then capture it." : pendingQuestion);
+                ? "Your answer is saved. One final question follows the earlier captured words."
+                : string.IsNullOrEmpty(pendingQuestion) ? "Build another word, or press Create Story." : pendingQuestion);
         }
 
         IEnumerator SaveGuidedAnswer(int index, string answer, int token)
@@ -147,9 +151,9 @@ namespace BrailleSoundDemo
             if (!Save()) yield break;
             NotifyPresentation(AnswerSaved, CopyTurn(turn));
             if (!Valid(token)) yield break;
-            if (word.finishMarker)
+            if (guidedFinalQuestionActive)
             {
-                guidedFinishPending = true;
+                guidedFinalQuestionActive = false; guidedFinishPending = true;
                 if (!Valid(token)) yield break;
                 yield return StorySequence(word.word, token);
                 yield break;
@@ -175,12 +179,13 @@ namespace BrailleSoundDemo
 
         bool RequestGuidedStoryFinish()
         {
-            if (!ReadyForPhysicalWord || Record.words.Count == 0) return false;
-            guidedFinishPending = true;
+            if (!ReadyForPhysicalWord || Record.words.Count == 0 || guidedFinalQuestionActive) return false;
+            guidedFinishPending = true; guidedFinalQuestionActive = true; physicalFinishRequested = true;
             ClearGuidedPrompt();
-            // A standalone period is a session signal, not a fabricated WORD. marker.
+            // A standalone period asks one final question; only its saved answer
+            // starts the story. The period itself is never a word or sound source.
             if (!Save()) return false;
-            StartCoroutine(StorySequence(Record.words[Record.words.Count - 1].word, generation));
+            StartCoroutine(GuidedDialogueSequence("finish", Record.words.Count - 1, generation));
             return true;
         }
 
@@ -299,7 +304,7 @@ namespace BrailleSoundDemo
         void ClearGuidedPrompt() { guidedPromptTurnId = ""; guidedNextInput = ""; pendingQuestion = ""; CurrentPrompt = ""; }
         void CancelGuidedPromptForStory()
         {
-            guidedRequestPending = false; guidedRequestTurnId = ""; guidedFinishPending = true;
+            guidedRequestPending = false; guidedRequestTurnId = ""; guidedFinishPending = true; guidedFinalQuestionActive = false;
             ClearGuidedPrompt();
         }
         void RecoverGuidedDialogueFailure(string operation, StoryReply reply, string error)
@@ -309,12 +314,12 @@ namespace BrailleSoundDemo
                 errorCode = reply?.errorCode ?? "dialogue_failure", generationAttempts = reply?.generationAttempts ?? 0,
                 failedAt = UtcNow(), recaptureRequested = false });
             Fail(Record.words.Count == 0 ? "Could not start the story guidance. End this session and select Create World again."
-                : "Could not continue the question. Your words and answers are saved; use Finish to create the story or end the session.");
+                : "Could not continue the question. Your words and answers are saved; press Create Story to use your saved progress, or Home to return to the start.");
             Save();
         }
         void ResetGuidedDialogue()
         {
-            StopGuidedEffectPlayback(); guidedEnabled = false; guidedRequestPending = false; guidedFinishPending = false;
+            StopGuidedEffectPlayback(); guidedEnabled = false; guidedRequestPending = false; guidedFinishPending = false; guidedFinalQuestionActive = false;
             guidedNextInput = guidedPromptTurnId = guidedRequestTurnId = "";
             guidedSoundWords.Clear();
         }

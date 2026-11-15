@@ -5,12 +5,12 @@ using UnityEngine.XR;
 
 namespace BrailleSoundDemo.Presentation
 {
-    /// <summary>Small rig-local menu. Owns only its visuals and pointer input, never the XR rig.</summary>
+    /// <summary>Home and Create Story actions. Owns only its visuals and pointer input, never the XR rig.</summary>
     [DisallowMultipleComponent]
     [DefaultExecutionOrder(190)]
     public sealed class SessionFinishMenu : MonoBehaviour
     {
-        enum Action { None, Open, Create, End, Cancel }
+        enum Action { None, Home, Create }
 
         sealed class Button
         {
@@ -18,14 +18,14 @@ namespace BrailleSoundDemo.Presentation
             public MeshRenderer renderer;
             public TextMesh label;
             public Action action;
-            public bool enabled = true, hovered;
+            public bool enabled = true, hovered, painted;
         }
 
-        static readonly Color PanelColor = new Color(.035f, .055f, .075f);
         static readonly Color ButtonColor = new Color(.12f, .24f, .31f);
         static readonly Color HoverColor = new Color(.12f, .46f, .59f);
         static readonly Color DisabledColor = new Color(.09f, .12f, .14f);
         readonly List<Button> buttons = new List<Button>();
+        readonly List<Material> paintedMaterials = new List<Material>();
         readonly bool[] wasPressed = new bool[4], sawRelease = new bool[4];
         readonly Button[] recentTargets = new Button[4];
         readonly float[] recentTargetTimes = new float[4];
@@ -34,12 +34,12 @@ namespace BrailleSoundDemo.Presentation
         MaterialPropertyBlock colors;
         PhysicalStoryCoordinator coordinator;
         OVRCameraRig rig;
-        Transform visualRoot, finishRoot, dialogRoot;
-        Transform dialogSurface;
+        Transform visualRoot, actionRoot;
         TextMesh message;
         Material material;
+        Texture2D homeTexture, createStoryTexture;
         Font font;
-        bool dialogOpen, uiPressHeld;
+        bool uiPressHeld;
         float releaseGraceUntil, nextHandSearch;
         string notice = "";
 
@@ -55,11 +55,15 @@ namespace BrailleSoundDemo.Presentation
             return menu;
         }
 
-        public bool DialogOpen => dialogOpen;
+        // Keep the existing integration surface while replacing the former
+        // Finish dialog with the two direct actions requested for the demo.
+        public bool DialogOpen => false;
 
-        public void Open()
+        public void Open() => GoHome();
+
+        public void GoHome()
         {
-            if (coordinator != null) Activate(Action.Open);
+            if (coordinator != null && coordinator.ExperienceActive) Activate(Action.Home);
         }
 
         bool StorySubmitted
@@ -80,17 +84,12 @@ namespace BrailleSoundDemo.Presentation
             material = new Material(Shader.Find("Unlit/Color"));
             font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             visualRoot = NewRoot("Session menu", rig.centerEyeAnchor, new Vector3(0, 0, .8f));
-            finishRoot = NewRoot("Finish", visualRoot, new Vector3(.27f, .18f, 0));
-            AddButton(finishRoot, "Finish", Action.Open, Vector3.zero, new Vector2(.135f, .06f));
-
-            dialogRoot = NewRoot("Finish dialog", visualRoot, Vector3.zero);
-            dialogSurface = Surface("Dialog background", dialogRoot, Vector3.zero, new Vector2(.64f, .33f), PanelColor).transform;
-            Label(dialogRoot, "Would you like to finish?", new Vector3(0, .108f, -.01f), .024f);
-            Label(dialogRoot, "Create a story from your saved progress,\nor end this session?", new Vector3(0, .042f, -.01f), .017f);
-            AddButton(dialogRoot, "Create Story", Action.Create, new Vector3(-.205f, -.054f, -.01f), new Vector2(.185f, .065f));
-            AddButton(dialogRoot, "End Session", Action.End, new Vector3(0, -.054f, -.01f), new Vector2(.185f, .065f));
-            AddButton(dialogRoot, "Cancel", Action.Cancel, new Vector3(.205f, -.054f, -.01f), new Vector2(.185f, .065f));
-            message = Label(dialogRoot, "", new Vector3(0, -.121f, -.01f), .016f);
+            actionRoot = NewRoot("Story actions", visualRoot, new Vector3(.215f, .20f, 0));
+            homeTexture = Resources.Load<Texture2D>("StoryBricks/Buttons/home");
+            createStoryTexture = Resources.Load<Texture2D>("StoryBricks/Buttons/create_story");
+            AddPaintedButton(actionRoot, "Home", Action.Home, new Vector3(-.10f, 0, 0), homeTexture);
+            AddPaintedButton(actionRoot, "Create Story", Action.Create, new Vector3(.10f, 0, 0), createStoryTexture);
+            message = Label(actionRoot, "", new Vector3(0, -.075f, -.01f), .014f);
 
             for (int i = 0; i < rays.Length; i++)
             {
@@ -158,6 +157,35 @@ namespace BrailleSoundDemo.Presentation
             buttons.Add(new Button { hitArea = renderer.transform, renderer = renderer, label = label, action = action });
         }
 
+        void AddPaintedButton(Transform parent, string text, Action action, Vector3 position, Texture2D texture)
+        {
+            const float width = .185f;
+            var shader = Resources.Load<Shader>("WordImageAlpha");
+            if (texture == null || shader == null)
+            {
+                Debug.LogError("[SessionFinishMenu] Missing painted button asset: " + text);
+                AddButton(parent, text, action, position, new Vector2(width, .089f));
+                return;
+            }
+            // The PNG includes its label. A separate, full rectangular target keeps
+            // the painted transparent fringe from making pinches difficult to hit.
+            var hit = NewRoot(text + " target", parent, position);
+            hit.localScale = new Vector3(width, width * texture.height / texture.width, .006f);
+            var picture = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            picture.name = text + " artwork";
+            picture.transform.SetParent(hit, false);
+            picture.transform.localPosition = new Vector3(0, 0, -.51f);
+            var collider = picture.GetComponent<Collider>();
+            if (collider != null) { collider.enabled = false; Destroy(collider); }
+            var ink = new Material(shader) { name = text + " button", mainTexture = texture, color = Color.white };
+            paintedMaterials.Add(ink);
+            var renderer = picture.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = ink;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            buttons.Add(new Button { hitArea = hit, renderer = renderer, action = action, painted = true });
+        }
+
         void Tint(Renderer renderer, Color color)
         {
             colors.SetColor("_Color", color);
@@ -171,7 +199,8 @@ namespace BrailleSoundDemo.Presentation
             if(!coordinator.ExperienceActive)
             {
                 if(visualRoot!=null) visualRoot.gameObject.SetActive(false);
-                dialogOpen=false; uiPressHeld=false;
+                foreach(var ray in rays) if(ray!=null) ray.enabled=false;
+                uiPressHeld=false;
                 coordinator.SetFinishMenuOpen(false);
                 return;
             }
@@ -205,8 +234,6 @@ namespace BrailleSoundDemo.Presentation
                     foreach (var button in buttons)
                         if (Hit(button.hitArea, ray, out float hit) && hit < distance)
                         { target = button; distance = hit; }
-                    Transform panel = dialogOpen ? dialogSurface : null;
-                    if (target == null && Hit(panel, ray, out float panelHit)) distance = panelHit;
                 }
                 bool overUi = !float.IsPositiveInfinity(distance);
                 hovering |= overUi;
@@ -238,12 +265,15 @@ namespace BrailleSoundDemo.Presentation
             // driver then requires a fresh release and two fresh pinches.
             if (uiPressHeld && !anyPressed)
             { uiPressHeld = false; releaseGraceUntil = Time.unscaledTime + .2f; }
-            coordinator.SetFinishMenuOpen(dialogOpen || hovering || uiPressHeld || Time.unscaledTime < releaseGraceUntil);
+            coordinator.SetFinishMenuOpen(hovering || uiPressHeld || Time.unscaledTime < releaseGraceUntil);
             if (selected != Action.None) Activate(selected);
             foreach (var button in buttons)
             {
-                Tint(button.renderer, !button.enabled ? DisabledColor : button.hovered ? HoverColor : ButtonColor);
-                button.label.color = button.enabled ? Color.white : new Color(.5f, .56f, .6f);
+                var tint = button.painted
+                    ? (!button.enabled ? new Color(.7f, .7f, .7f, .6f) : button.hovered ? new Color(1f, .90f, .76f) : Color.white)
+                    : (!button.enabled ? DisabledColor : button.hovered ? HoverColor : ButtonColor);
+                Tint(button.renderer, tint);
+                if (button.label != null) button.label.color = button.enabled ? Color.white : new Color(.5f, .56f, .6f);
             }
         }
 
@@ -300,18 +330,17 @@ namespace BrailleSoundDemo.Presentation
             releaseGraceUntil = Time.unscaledTime + .2f;
             switch (action)
             {
-                case Action.Open: dialogOpen = true; notice = ""; break;
-                case Action.Cancel: dialogOpen = false; notice = ""; break;
-                case Action.End:
+                case Action.Home:
+                    // EndSession clears active words/media and returns through the
+                    // router; durable Mac/Quest story archives remain available.
                     coordinator.EndSessionToStart();
-                    dialogOpen = false; notice = "";
+                    notice = "";
                     break;
                 case Action.Create:
                     if (StorySubmitted) break;
                     if (coordinator.SavedWordCount == 0) { notice = "Capture at least one word first."; break; }
-                    if (coordinator.CreateStoryFromSavedProgress())
-                    { dialogOpen = false; notice = ""; }
-                    else notice = "Unable to create a story yet. Please try again.";
+                    notice = coordinator.CreateStoryFromSavedProgress()
+                        ? "" : "Unable to create a story.\nPlease try again.";
                     break;
             }
             // Session resets may clear coordinator state. This selection still
@@ -323,37 +352,21 @@ namespace BrailleSoundDemo.Presentation
         void Refresh()
         {
             if (visualRoot == null) return;
-            finishRoot.gameObject.SetActive(!dialogOpen);
-            dialogRoot.gameObject.SetActive(dialogOpen);
             message.text = notice;
-            foreach (var button in buttons) button.enabled = button.action != Action.Create || !StorySubmitted;
+            message.gameObject.SetActive(!string.IsNullOrEmpty(notice));
+            foreach (var button in buttons)
+                button.enabled = button.action != Action.Create || (!StorySubmitted && coordinator.SavedWordCount > 0);
         }
 
         void OnGUI()
         {
             if (coordinator == null || !coordinator.ExperienceActive || XRSettings.isDeviceActive) return;
-            if (!dialogOpen)
-            {
-                if (GUI.Button(new Rect(Screen.width - 120, 20, 100, 42), "Finish")) Activate(Action.Open);
-                return;
-            }
-            var panel = new Rect((Screen.width - 540) / 2f, (Screen.height - 220) / 2f, 540, 220);
-            GUILayout.BeginArea(panel, GUI.skin.box);
-            GUILayout.Space(20);
-            GUILayout.Label("Would you like to finish?");
-            GUILayout.Space(12);
-            GUILayout.Label("Create a story from your saved progress, or end this session?");
-            GUILayout.Space(20);
-            GUILayout.BeginHorizontal();
-            bool enabled = GUI.enabled;
-            GUI.enabled = enabled && !StorySubmitted;
-            if (GUILayout.Button("Create Story", GUILayout.Height(45))) Activate(Action.Create);
-            GUI.enabled = enabled;
-            if (GUILayout.Button("End Session", GUILayout.Height(45))) Activate(Action.End);
-            if (GUILayout.Button("Cancel", GUILayout.Height(45))) Activate(Action.Cancel);
-            GUILayout.EndHorizontal();
-            GUILayout.Label(notice);
-            GUILayout.EndArea();
+            if (GUI.Button(new Rect(Screen.width - 300, 20, 120, 58), "Home")) Activate(Action.Home);
+            bool allowed = GUI.enabled;
+            GUI.enabled = allowed && !StorySubmitted && coordinator.SavedWordCount > 0;
+            if (GUI.Button(new Rect(Screen.width - 170, 20, 150, 58), "Create Story")) Activate(Action.Create);
+            GUI.enabled = allowed;
+            if (!string.IsNullOrEmpty(notice)) GUI.Label(new Rect(Screen.width - 300, 82, 280, 60), notice);
         }
 
         void OnDisable()
@@ -370,6 +383,7 @@ namespace BrailleSoundDemo.Presentation
             if (visualRoot != null) Destroy(visualRoot.gameObject);
             foreach (var ray in rays) if (ray != null) Destroy(ray.gameObject);
             if (material != null) Destroy(material);
+            foreach (var painted in paintedMaterials) if (painted != null) Destroy(painted);
         }
     }
 }

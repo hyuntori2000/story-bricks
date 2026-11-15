@@ -68,6 +68,12 @@ namespace BrailleSoundDemo.Tests
                 // Editor verification pumps the same coroutine explicitly after the held transport boundary.
                 Dialogue("word", index, next);
             }
+            public void Period()
+            {
+                Provider.Hold = true;
+                Require(Flow.RequestStoryFinish(), "A period starts the final-question route at the queue boundary.");
+                Dialogue("finish", Flow.Record.words.Count - 1, "speak_answer");
+            }
             public void Answer(string answer, string next)
             {
                 Provider.NextInput = next;
@@ -84,77 +90,86 @@ namespace BrailleSoundDemo.Tests
             using (var f = new Fixture())
             {
                 string intro = f.Provider.LastContext.turnId;
-                Require(f.Flow.ReadyForPhysicalWord && f.Flow.Record.words.Count == 0 && !f.Flow.CanAnswer,
-                    "Intro opens build input without a word or microphone.");
-                f.Word("JUDY", "speak_answer");
+                Require(f.Flow.ReadyForPhysicalWord && f.Flow.Record.words.Count == 0 && !f.Flow.CanAnswer && !f.Flow.RequestStoryFinish(),
+                    "Intro opens build input, and a period cannot finish an empty story.");
+                f.Word("CAT", "speak_answer");
                 Require(f.Flow.Record.turns.Count == 1 && f.Flow.Record.turns[0].turnId == intro &&
                     f.Flow.Record.turns[0].inputType == "build_word" && f.Flow.CanAnswer && !f.Flow.CanComplete(1),
-                    "The first word answers the actual intro, then waits for a spoken answer before another build.");
-                f.Answer("Judy is wondering about the moon.", "build_word");
+                    "The first word waits for its one real spoken answer.");
+                f.Answer("She wants to visit the moon.", "build_word");
                 Require(f.Flow.ReadyForPhysicalWord && f.Flow.Record.turns.Count == 2 &&
-                    f.Flow.Record.turns[1].wordIndex == 0 && f.Flow.Record.turns[1].inputType == "speak_answer" &&
-                    f.Flow.CurrentPrompt == "What could help with that idea? Build a word for that idea.",
-                    "A saved first-word answer opens the related next-word invitation.");
-                f.Word("MOON", "speak_answer");
-                Require(f.Flow.CanAnswer && !f.Flow.CanComplete(2), "A spoken prompt keeps queued words from consuming it.");
-                string first = f.Provider.LastContext.turnId;
-                f.Answer("Soft bread dough.", "speak_answer");
-                string second = f.Provider.LastContext.turnId;
-                f.Answer("It hums.", "build_word");
-                Require(first != second && f.Flow.Record.words.Count == 2 && f.Flow.Record.turns.Count == 5 &&
-                    f.Flow.Record.turns[3].turnId == first && f.Flow.Record.turns[4].turnId == second &&
-                    f.Flow.Record.turns[3].wordIndex == 1 && f.Flow.Record.turns[4].wordIndex == 1 && f.Flow.CanComplete(2),
-                    "Two actual spoken turns remain attached to one word and then return to build input.");
-                f.Word("KITE", "speak_answer");
-                f.Provider.DuringReply = () => f.Flow.SetFinishPending();
-                f.Answer("The string pulls.", "speak_answer");
-                Require(f.Flow.ReadyForPhysicalWord && !f.Flow.CanAnswer && f.Flow.CurrentPrompt == "",
-                    "A period arriving during a follow-up request suppresses its unplayed question and microphone.");
-                f.Provider.DuringReply = null;
+                    f.Flow.Record.turns[1].wordIndex == 0 && f.Flow.Record.turns[1].inputType == "speak_answer",
+                    "One saved answer opens the related next-word invitation.");
+                f.Word("ROCKET", "build_word");
+                Require(f.Flow.ReadyForPhysicalWord && !f.Flow.CanAnswer && f.Provider.Stories == 0 &&
+                    f.Flow.Record.turns.Count == 3 && f.Flow.CanComplete(2),
+                    "The second word closes briefly, then waits for another word or Create Story without auto-finishing.");
                 f.Word("WIND", "speak_answer");
+                f.Provider.DuringReply = () => f.Flow.SetFinishPending();
+                f.Answer("It carries my rocket.", "build_word");
+                Require(f.Flow.ReadyForPhysicalWord && !f.Flow.CanAnswer && f.Flow.CurrentPrompt == "",
+                    "A queued period suppresses an unplayed next-word invitation after the saved answer.");
+                f.Provider.DuringReply = null;
+                f.Word("MOON", "build_word");
                 Require(f.Flow.Record.turns.FindAll(t => t.wordIndex == 3 && t.inputType == "build_word").Count == 0,
-                    "A queued unprompted word is retained without inventing a build exchange.");
-                f.Answer("It pushes my hair.", "build_word");
-                Require(f.Flow.ReadyForPhysicalWord && f.Flow.RequestStoryFinish() &&
-                    f.Provider.StoryContext.finishRequested && f.Provider.StoryContext.schemaVersion == 2 &&
-                    !f.Flow.Record.words[3].finishMarker,
-                    "A standalone period requests the story after queued answers without fabricating a trailing-period word.");
+                    "An earlier queued unprompted word is retained without inventing a build exchange.");
+                f.Period();
+                Require(f.Flow.CanAnswer && f.Flow.PeriodQuestionPending && f.Provider.Stories == 0 && !f.Flow.RequestStoryFinish(),
+                    "A standalone period asks exactly one final question instead of generating immediately or repeating itself.");
+                f.Flow.SetFinishPending(false);
+                Require(f.Flow.PeriodQuestionPending, "Consuming the delimiter cannot clear the final-question latch.");
+                f.Answer("We bring moon flowers home.", "build_word");
+                Require(f.Provider.Stories == 1 && f.Provider.StoryContext.finishRequested &&
+                    !f.Flow.Record.words[3].finishMarker &&
+                    f.Provider.StoryContext.turns[f.Provider.StoryContext.turns.Count - 1].answer == "We bring moon flowers home.",
+                    "The standalone period preserves the real final answer and does not fabricate a trailing-period word.");
                 Require(f.Root.GetComponent<MicrophoneAnswerInput>() == null && !f.Flow.IsLive,
                     "No microphone or live provider is used by guided verification.");
             }
             using (var f = new Fixture())
             {
-                f.Word("JUDY", "speak_answer"); f.Answer("Judy wants to travel.", "build_word");
-                f.Word("MOON", "speak_answer");
+                f.Word("CAT", "speak_answer");
                 f.Provider.Fail = true;
                 f.Provider.DuringReply = () => f.Flow.SetFinishPending();
-                f.Answer("It glows.", "speak_answer");
-                Require(f.Flow.ReadyForPhysicalWord && f.Flow.Record.turns[f.Flow.Record.turns.Count - 1].answer == "It glows.",
-                    "A failed obsolete follow-up cannot block a pending period or lose the saved answer.");
+                f.Answer("She wants to fly.", "build_word");
+                Require(f.Flow.ReadyForPhysicalWord && f.Flow.Record.turns[f.Flow.Record.turns.Count - 1].answer == "She wants to fly.",
+                    "A failed obsolete build invitation cannot block a pending period or lose the saved answer.");
                 f.Provider.Fail = false; f.Provider.DuringReply = null;
-                f.Word("MOON", "speak_answer");
-                Require(f.Flow.Record.words.Count == 3 && f.Flow.Record.words[1].groupId != f.Flow.Record.words[2].groupId,
-                    "A later captured group may use the same spelling for a new story moment.");
+                f.Period();
+                Require(f.Flow.CanAnswer && f.Flow.Record.turns.Count == 2,
+                    "A period after an already answered first word still opens one additional final question.");
+                f.Answer("She lands safely at home.", "build_word");
+                Require(f.Provider.Stories == 1 && f.Provider.StoryContext.turns.Count == 3,
+                    "Both the original answer and the extra ending answer enter the final story.");
             }
             using (var f = new Fixture())
             {
                 f.Word("MOON.", "speak_answer");
-                Require(f.Provider.Stories == 0, "WORD. still waits for its final spoken answer.");
-                f.Answer("It is warm.", "speak_answer");
+                Require(f.Provider.Stories == 0 && f.Flow.PeriodQuestionPending, "WORD. waits for its final spoken answer.");
+                f.Answer("It is warm.", "build_word");
                 Require(f.Provider.Stories == 1 && f.Provider.StoryContext.turns.Count == 2 &&
                     f.Provider.StoryContext.turns[1].answer == "It is warm.", "WORD. includes its real answer in the story.");
             }
             using (var f = new Fixture())
             {
-                f.Word("JUDY", "speak_answer"); f.Answer("Judy wants to travel.", "build_word");
-                f.Word("MOON", "speak_answer");
-                f.Answer("Bread dough.", "speak_answer");
+                f.Word("CAT", "speak_answer"); f.Answer("She wants to travel.", "build_word");
+                f.Word("ROCKET.", "speak_answer");
+                Require(f.Flow.CanAnswer && f.Provider.Stories == 0,
+                    "A period on the second word overrides its ordinary closing with the final spoken question.");
+                f.Answer("They return to their friends.", "build_word");
+                Require(f.Provider.Stories == 1, "The marked second word starts its story only after the ending answer.");
+            }
+            using (var f = new Fixture())
+            {
+                f.Word("CAT", "speak_answer"); f.Answer("She wants to travel.", "build_word");
+                f.Word("CAT", "build_word"); f.Word("CAT", "speak_answer");
+                Require(f.Flow.Record.words.Count == 3 && f.Flow.Record.words[1].groupId != f.Flow.Record.words[2].groupId,
+                    "Later captures may repeat the same spelling for new story moments.");
                 int saved = f.Flow.Record.turns.Count;
                 Require(f.Flow.CreateStoryFromSavedProgress(useLiveProvider: false) &&
                     f.Provider.StoryContext.completionMode == "manual_saved_progress" &&
-                    f.Provider.StoryContext.turns.Count == saved &&
-                    f.Provider.StoryContext.turns[saved - 1].inputType == "speak_answer",
-                    "Manual Create Story preserves only real saved exchanges while canceling the unfinished follow-up.");
+                    f.Provider.StoryContext.turns.Count == saved,
+                    "Create Story preserves saved exchanges while canceling an unfinished question, without requiring a period.");
             }
             using (var f = new Fixture())
             {
@@ -171,9 +186,8 @@ namespace BrailleSoundDemo.Tests
             using (var f = new Fixture())
             {
                 f.Word("JUDY", "build_word");
-                Require(f.Flow.State == ConversationState.Error && !f.Flow.ReadyForPhysicalWord && !f.Flow.CanAnswer &&
-                    f.Flow.Record.words.Count == 1 && f.Flow.Record.turns.Count == 1,
-                    "A provider cannot skip the first word's conversation by requesting another word immediately.");
+                Require(f.Flow.State == ConversationState.Error && !f.Flow.ReadyForPhysicalWord && !f.Flow.CanAnswer,
+                    "A provider cannot skip the first word's question.");
             }
             VerifyImmediateWordSound();
             Debug.Log("GUIDED_DIALOGUE_VERIFICATION_PASSED " + checks);

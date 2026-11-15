@@ -92,21 +92,23 @@ class GuidedBackendTests(unittest.TestCase):
         self.assertEqual(restarted.health()["storySentenceCount"], 7)
 
     def test_word_events_acknowledge_once_and_select_required_input(self):
-        cases = [(("JUDY",), False, "speak_answer"), (("JUDY", "MOON"), False, "speak_answer"),
+        cases = [(("JUDY",), False, "speak_answer"), (("JUDY", "MOON"), False, "build_word"),
                  (("JUDY.",), False, "speak_answer"), (("JUDY",), True, "speak_answer")]
         for number, (words, marker, expected) in enumerate(cases):
             value = context(words, "word")
             if marker:
                 value["words"][-1]["finishMarker"] = True
-            self.upstream.output = {"question": "What is this adventure like?", "nextInput": expected}
+            closing = expected == "build_word"
+            phrase = "Your adventure can now reach the moon." if closing else "What is this adventure like?"
+            self.upstream.output = {"question": phrase, "nextInput": expected}
             status, result = self.dispatch(value, request="word-" + str(number))
             self.assertEqual(status, 200)
             name = words[-1].rstrip(".").capitalize()
-            directive = "Say the sentence."
+            directive = "Keep building another word, or press Create Story to make your story." if closing else "Say the sentence."
             spelling = ", ".join(c for c in words[-1].upper() if "A" <= c <= "Z") + ". "
-            self.assertEqual(result["text"], spelling + name + "! What is this adventure like? " + directive)
+            self.assertEqual(result["text"], spelling + name + "! " + phrase + " " + directive)
             self.assertEqual(result["spokenText"], result["text"])
-            self.assertEqual(result["question"], "What is this adventure like?")
+            self.assertEqual(result["question"], phrase)
             self.assertEqual(result["nextInput"], expected)
 
     def test_first_word_requires_conversation_before_a_related_build_invitation(self):
@@ -146,21 +148,52 @@ class GuidedBackendTests(unittest.TestCase):
             self.assertEqual(value["currentWord"], word)
         value = context(("MOON", "MOON"), "answer")
         exchange(value, 1, "speak_answer", "It feels soft.")
-        reply = guided.dialogue_reply({"question": "Where will it go?", "nextInput": "speak_answer"}, value)
-        self.assertEqual(reply["spokenText"], "Where will it go? Say the sentence.")
+        reply = guided.dialogue_reply({"question": "What could help it travel?", "nextInput": "build_word"}, value)
+        self.assertEqual(reply["spokenText"], "What could help it travel? Build a word for that idea.")
 
-    def test_answers_allow_one_followup_then_require_next_build(self):
-        value = context(("JUDY", "MOON"), "answer")
-        exchange(value, 1, "speak_answer", "Bread dough, soft and cold.")
-        self.upstream.output = {"question": "What sound does your moon make?", "nextInput": "speak_answer"}
-        self.assertEqual(self.dispatch(value)[0], 200)
-        exchange(value, 1, "speak_answer", "It squeaks.")
+    def test_one_answer_always_invites_related_word_without_a_spoken_followup(self):
+        value = context(("CAT",), "answer")
+        exchange(value, 0, "speak_answer", "She wants to visit the moon.")
         self.assertEqual(guided.allowed_next_inputs(value), ["build_word"])
-        status, failure = self.dispatch(value, request="answer-2")
+        self.upstream.output = {"question": "What does your cat sound like?", "nextInput": "speak_answer"}
+        status, failure = self.dispatch(value, request="extra-question")
         self.assertEqual((status, failure["code"]), (502, "invalid_dialogue_input"))
-        self.assertEqual(sum(call[0] == "speech" for call in self.upstream.calls), 1)
-        self.upstream.output = {"question": "What could carry Judy there?", "nextInput": "build_word"}
-        self.assertEqual(self.dispatch(value, request="answer-3")[0], 200)
+        self.assertFalse(any(call[0] == "speech" for call in self.upstream.calls))
+        self.upstream.output = {"question": "What could carry your cat there?", "nextInput": "build_word"}
+        self.assertEqual(self.dispatch(value, request="next-word")[0], 200)
+
+    def test_second_word_closes_without_auto_finish_and_third_reopens_question(self):
+        value = context(("CAT", "ROCKET"), "word")
+        exchange(value, 0, "speak_answer", "She wants to visit the moon.")
+        self.assertEqual(guided.dialogue_phase(value), "word_closing")
+        self.upstream.output = {"question": "Your cat is ready for a moon adventure.", "nextInput": "build_word"}
+        status, result = self.dispatch(value)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["spokenText"], "R, O, C, K, E, T. Rocket! Your cat is ready for a moon adventure. Keep building another word, or press Create Story to make your story.")
+        self.assertFalse(value["finishRequested"])
+        self.upstream.output = {"question": "Where does the rocket go?", "nextInput": "build_word"}
+        self.assertEqual(self.dispatch(value, request="extra-second-question")[1]["code"], "invalid_dialogue_question")
+        third = context(("CAT", "ROCKET", "RAIN"), "word")
+        self.assertEqual(guided.allowed_next_inputs(third), ["speak_answer"])
+
+    def test_period_requires_one_final_question_even_after_a_saved_answer(self):
+        value = context(("CAT",), "finish", finish=True)
+        exchange(value, 0, "speak_answer", "She wants to fly.")
+        self.assertIs(guided.validate_context(value, "dialogue"), value)
+        self.assertEqual(guided.dialogue_phase(value), "final_question")
+        self.assertEqual(guided.allowed_next_inputs(value), ["speak_answer"])
+        self.upstream.output = {"question": "What does your cat discover at the end?", "nextInput": "speak_answer"}
+        status, result = self.dispatch(value)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["spokenText"], "What does your cat discover at the end? Say the sentence.")
+        self.assertNotIn("C, A, T", result["spokenText"])
+        self.assertEqual(self.upstream.calls[0][1]["dialogueEvent"], "finish")
+        value["finishRequested"] = False
+        with self.assertRaises(guided.GuidedError): guided.validate_context(value, "dialogue")
+        marked = context(("CAT", "ROCKET."), "word", finish=True)
+        self.assertEqual(guided.dialogue_phase(marked), "final_question")
+        self.assertEqual(guided.allowed_next_inputs(marked), ["speak_answer"])
+
 
     def test_saved_exchange_types_and_repeated_word_roles_are_preserved(self):
         value = context(("MOON", "MOON"), "answer")

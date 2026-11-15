@@ -398,14 +398,19 @@ namespace BrailleSoundDemo.PhysicalStory
             PublishPresentation("word.accepted",anchor.groupId,anchor.index,anchor.word,anchor.anchor);
             if(liveConversation)
             {
-                if(waitingForConversationRecapture) conversationQueue.Insert(0,anchor);
-                else conversationQueue.Add(anchor);
+                bool duplicatePeriod = PhysicalWordInputPolicy.IsStoryFinishMarker(anchor.word) &&
+                    (Flow.PeriodQuestionPending || Flow.StoryFinishRequested || conversationQueue.Exists(queued => PhysicalWordInputPolicy.EndsStory(queued.word)));
+                if(!duplicatePeriod)
+                {
+                    if(waitingForConversationRecapture) conversationQueue.Insert(0,anchor);
+                    else conversationQueue.Add(anchor);
+                }
                 waitingForConversationRecapture=false;
                 RefreshFinishPending();
             }
             FinishWaiting(PhysicalWordInputPolicy.IsStoryFinishMarker(geometry.Word) && liveConversation
-                ? "Period received. Finishing earlier answers before creating your story."
-                : "Created "+geometry.Word+(liveConversation?". Queued for conversation; capture a period when finished.":". Prepared media is ready; no automatic conversation."));
+                ? "Period received. One final question follows the earlier captured words."
+                : "Created "+geometry.Word+(liveConversation?". Queued for conversation; use Create Story whenever you are ready.":". Prepared media is ready; no automatic conversation."));
             Debug.Log("[PhysicalStory] Word="+geometry.Word+" | frame="+metadata.frameId+
                 " | captured table-plane anchor="+anchor.capturedWorldPosition.ToString("F3")+
                 " | component IDs identify selected regions in this photo, not continuously tracked physical bricks.");
@@ -463,7 +468,7 @@ namespace BrailleSoundDemo.PhysicalStory
                     {
                         conversationQueue.RemoveAt(i);
                         RefreshFinishPending();
-                        SetStatus("Period accepted. Creating the story from the saved words and answers.");
+                        SetStatus("Period accepted. Answer one final question, then your story and animation will begin.");
                     }
                     return;
                 }
@@ -488,7 +493,7 @@ namespace BrailleSoundDemo.PhysicalStory
         }
 
         // A captured delimiter can arrive while the child is answering. Tell the
-        // dialogue to stop asking new follow-ups after that answer, without
+        // dialogue to skip a new build invitation after that answer, without
         // bypassing the build-word gate or consuming earlier queued words.
         void RefreshFinishPending()
         {

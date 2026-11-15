@@ -409,7 +409,7 @@ namespace BrailleSoundDemo
             Array.Resize(ref liveWordSoundJobs, capacity);
             Array.Resize(ref preparedLiveWordClips, capacity);
         }
-        /// <summary>A separate period ends the answered queue without becoming a question or sound word.</summary>
+        /// <summary>A separate period requests the final question without becoming a word or sound source.</summary>
         public bool RequestStoryFinish()
         {
             if (GuidedDialogueEnabled) return RequestGuidedStoryFinish();
@@ -1170,7 +1170,7 @@ namespace BrailleSoundDemo
                     errorCode = reply?.errorCode ?? "provider_failure", generationAttempts = reply?.generationAttempts ?? 0,
                     failedAt = UtcNow(), recaptureRequested = false });
                 storyRequested = false;
-                Fail("Story creation failed. Your words and answers are saved. Open Finish to try again or end the session.");
+                Fail("Story creation failed. Your words and answers are saved. Press Create Story to try again, or Home to return to the start.");
                 Save();
                 return;
             }

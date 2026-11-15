@@ -46,9 +46,12 @@ namespace BrailleSoundDemo.Editor
             if(view.stage==null || view.narrationClip==null || view.storySfxClip==null ||
                 Mathf.Abs(view.storyEnd-61.5f)>.05f || view.narrationClip.length<59f)
                 throw new InvalidOperationException("Judy needs the supplied 61.5-second cutout stage, narration and sound track.");
-            if(view.newStoryButton==null || view.savedStoryButton==null ||
+            if(view.newStoryButton==null || view.savedStoryButton==null || view.tutorialButton==null ||
                 view.watchAgainButton==null || view.doneButton==null || view.restartButton==null)
                 throw new InvalidOperationException("The integrated view is missing a navigation button.");
+            foreach(var action in new[]{"home","create_story"})
+                if(Resources.Load<Texture2D>("StoryBricks/Buttons/"+action)==null)
+                    throw new InvalidOperationException("The painted story action is missing: "+action);
             if(prefab.GetComponentsInChildren<UnityEngine.Video.VideoPlayer>(true).Length!=0)
                 throw new InvalidOperationException("Judy must use its authored Unity components, not the unused 12-second clip.");
             foreach(var component in prefab.GetComponentsInChildren<Transform>(true))
@@ -73,13 +76,15 @@ namespace BrailleSoundDemo.Editor
                     view.finish,view.fox,view.bricks,view.pinch,view.period})
                     if(group!=null) group.gameObject.SetActive(false);
                 if(view.stage!=null) view.stage.gameObject.SetActive(false);
-                if(view.tutorialButton!=null) view.tutorialButton.gameObject.SetActive(false);
+                if(view.tutorialButton!=null) view.tutorialButton.gameObject.SetActive(true);
                 foreach(var tag in view.tags) tag.root.gameObject.SetActive(false);
                 view.menu.gameObject.SetActive(true); view.menu.alpha=1;
                 foreach(var text in view.newStoryButton.GetComponentsInChildren<TMP_Text>(true))
                     if(text.name=="Title") text.text="Create Your World"; else if(text.name=="Sub") text.text="Build your own story";
                 foreach(var text in view.savedStoryButton.GetComponentsInChildren<TMP_Text>(true))
                     if(text.name=="Title") text.text="Judy's Story"; else if(text.name=="Sub") text.text="Watch Judy's world come to life";
+                foreach(var text in view.tutorialButton.GetComponentsInChildren<TMP_Text>(true))
+                    if(text.name=="Title" || text.name=="Label") text.text="See previous story"; else if(text.name=="Sub") text.text="Watch your saved animations";
                 view.savedStoryButton.interactable=true;
                 var cameraObject=new GameObject("Preview camera");
                 UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(cameraObject,scene);

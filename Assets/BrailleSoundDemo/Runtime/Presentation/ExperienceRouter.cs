@@ -15,6 +15,8 @@ namespace BrailleSoundDemo.Presentation
         WorldCanvasHandInput menuInput;
         AccessibleOnboarding onboarding;
         StoryVideoPipeline videos;
+        StoryLibraryBrowser library;
+        Transform head;
         readonly HashSet<string> displayedWords=new HashSet<string>(StringComparer.Ordinal);
         string experience,route="",lastCaption="",lastVideoStage="idle";
         bool changingRoute,applicationPaused,applicationFocused=true;
@@ -32,6 +34,7 @@ namespace BrailleSoundDemo.Presentation
         {
             if(core!=null) return;
             core=owner;
+            head=rig.centerEyeAnchor;
             var prefab=Resources.Load<GameObject>("StoryBricks/View");
             if(prefab==null)
             {
@@ -60,6 +63,11 @@ namespace BrailleSoundDemo.Presentation
             view.JudyRequested+=SelectJudy;
             view.BackToMenuRequested+=ReturnToMenu;
             view.ReplayRequested+=Replay;
+            view.PreviousStoriesRequested+=SelectPreviousStories;
+            library=viewRoot.AddComponent<StoryLibraryBrowser>();
+            library.Configure(view);
+            library.Selected+=SelectSavedStory;
+            library.BackRequested+=ReturnToMenu;
             core.SessionEnded+=OnSessionEnded;
             core.StatusChanged+=OnCaptureStatusChanged;
             core.UsePresentationStatus(true);
@@ -83,6 +91,7 @@ namespace BrailleSoundDemo.Presentation
             try
             {
                 if(!core.BeginExperience("demo")) return;
+                library.Close();
                 onboarding.Cancel();
                 view.StopJudy();
                 core.SetPresentationInputBlocked(false);
@@ -109,7 +118,7 @@ namespace BrailleSoundDemo.Presentation
                 // A Judy viewing has no recognition/conversation session or API requests.
                 // Ending a live session first also invalidates every queued live callback.
                 if(core.ExperienceActive) core.EndSessionToStart();
-                onboarding.Cancel();view.StopJudy();core.ShowExperienceMenu();
+                onboarding.Cancel();library.Close();view.StopJudy();core.ShowExperienceMenu();
                 experience=null;route="judy";displayedWords.Clear();lastCaption="";lastVideoStage="idle";
                 viewRoot.SetActive(true);menuInput.enabled=true;
                 view.BeginRoute("judy");
@@ -128,11 +137,34 @@ namespace BrailleSoundDemo.Presentation
             else BeginOnboarding(false);
         }
 
+        public void SelectPreviousStories()
+        {
+            if(view==null || changingRoute) return;
+            changingRoute=true;
+            try
+            {
+                if(core.ExperienceActive) core.EndSessionToStart();
+                onboarding.Cancel();view.StopJudy();core.ShowExperienceMenu();
+                experience=null;route="library";displayedWords.Clear();lastCaption="";lastVideoStage="idle";
+                viewRoot.SetActive(true);menuInput.enabled=true;view.BeginRoute("library");
+                library.Open();
+                Debug.Log("[Experience] Browsing saved Mac stories; capture and conversation remain inactive.");
+            }
+            finally { changingRoute=false; }
+        }
+
+        void SelectSavedStory(StoryLibraryItem item)
+        {
+            if(changingRoute || route!="library" || core.ExperienceActive || item==null) return;
+            if(videos==null || !videos.BeginSaved(item,head,()=>route=="library" && !core.ExperienceActive))
+                library.ShowPlaybackError("This saved animation could not open. Return to the menu and try again.");
+        }
+
         public void Replay()
         {
             if(changingRoute || view==null) return;
             if(route=="judy" && !core.ExperienceActive) view.PlayJudy();
-            else if(Active("demo") && videos!=null && !videos.Replay())
+            else if((Active("demo") || (route=="library" && !core.ExperienceActive)) && videos!=null && !videos.Replay())
                 ShowCaption("Your animation is not ready to replay yet.");
         }
 
@@ -206,7 +238,7 @@ namespace BrailleSoundDemo.Presentation
 
         void OnVideoPresentationChanged(string stage,string message)
         {
-            if(!Active("demo")) return;
+            if(!Active("demo") && !(route=="library" && !core.ExperienceActive)) return;
             bool stageChanged=lastVideoStage!=stage;
             lastVideoStage=stage;
             view.SetListening(false);
@@ -217,7 +249,10 @@ namespace BrailleSoundDemo.Presentation
                 case "animation_complete":
                     view.SetBusy(false);view.ShowLiveEnd("Share your story in video!");lastCaption="";break;
                 case "animation_failed":
-                    view.SetBusy(false);view.ShowLiveVideo(false);ShowCaption(message);break;
+                    view.SetBusy(false);view.ShowLiveVideo(false);
+                    if(route=="library") library.ShowPlaybackError("This saved animation could not play. Check the Mac connection, then return to the menu and try again.");
+                    else ShowCaption(message);
+                    break;
                 default:
                     if(stageChanged) view.ShowLiveVideo(false);
                     view.ShowNextStage(message);view.SetBusy(true);lastCaption="";break;
@@ -246,14 +281,14 @@ namespace BrailleSoundDemo.Presentation
         void BeginOnboarding(bool playOpening)
         {
             route="";experience=null;displayedWords.Clear();lastCaption="";lastVideoStage="idle";
-            view.StopJudy();core.ShowExperienceMenu();
+            library?.Close();view.StopJudy();core.ShowExperienceMenu();
             menuInput.enabled=false;viewRoot.SetActive(false);
             core.SetPresentationInputBlocked(true);
             onboarding.Begin(playOpening);
         }
         void OnOnboardingReady()
         {
-            if(core==null || core.ExperienceActive || route=="judy") return;
+            if(core==null || core.ExperienceActive || route!="") return;
             viewRoot.SetActive(true);view.ShowMenu();menuInput.enabled=true;
             core.SetPresentationInputBlocked(false);
         }
@@ -268,6 +303,7 @@ namespace BrailleSoundDemo.Presentation
         void OnDestroy()
         {
             PresentationEvents.Published-=OnPresentationEvent;
+            if(library!=null) { library.Selected-=SelectSavedStory;library.BackRequested-=ReturnToMenu;library.Close(); }
             if(videos!=null) { videos.PresentationChanged-=OnVideoPresentationChanged;videos.SetPresentationTarget(null); }
             if(core!=null)
             {
@@ -287,6 +323,7 @@ namespace BrailleSoundDemo.Presentation
             {
                 view.CreateWorldRequested-=SelectCreateWorld;view.JudyRequested-=SelectJudy;
                 view.BackToMenuRequested-=ReturnToMenu;view.ReplayRequested-=Replay;view.StopJudy();
+                view.PreviousStoriesRequested-=SelectPreviousStories;
             }
         }
     }
