@@ -8,6 +8,8 @@ import tempfile
 import threading
 import time
 import unittest
+import wave
+import array
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -22,7 +24,7 @@ MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isomiso2" + b"\x00\x00\x00\x08md
 
 def request(request_id="r1", **changes):
     value = dict(workspaceId="demo", experienceSessionId="a" * 32, sessionId="conversation", requestId=request_id,
-                 storyText=STORY, storyAudioPath="/workspace-audio/demo/" + "a" * 32 + "/story.wav")
+                 storyText=STORY, storyAudioPath="/audio/" + "c" * 32 + ".wav")
     value.update(changes)
     return value
 
@@ -31,8 +33,9 @@ def query(value):
     return {key: [value[key]] for key in ("workspaceId", "experienceSessionId", "sessionId", "requestId")}
 
 
-def fake_join(ffmpeg, paths, destination):
+def fake_join(ffmpeg, paths, destination, narration=None):
     assert len(paths) == 2 and all(path.is_file() for path in paths)
+    assert narration is not None and narration.is_file()
     destination.write_bytes(MP4)
 
 
@@ -72,6 +75,11 @@ class FilmJobsTests(unittest.TestCase):
                       result={"text": STORY, "audioPath": value["storyAudioPath"]},
                       input={"context": {"words": [{"word": "CAT", "groupId": "group-cat"}], "turns": []}})
         write_json(self.session / "story/saved.json", record)
+        audio = self.session / "audio" / ("c" * 32 + ".wav")
+        audio.parent.mkdir(parents=True)
+        with wave.open(str(audio), "wb") as stream:
+            stream.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+            stream.writeframes(b"\x00\x00" * 16000)
         card = dict(workspaceId=value["workspaceId"], experienceSessionId=value["experienceSessionId"], sessionId=value["sessionId"],
                     groupId="group-cat", word="CAT", status="ready")
         write_json(self.session / "images/card.json", card)
@@ -119,6 +127,13 @@ class FilmJobsTests(unittest.TestCase):
             with self.assertRaises(video.VideoError) as caught:
                 manager.submit(value)
             self.assertEqual(caught.exception.code, "video_story_not_saved")
+        self.assertEqual(provider.submits, [])
+
+    def test_missing_narration_fails_before_paid_shots(self):
+        (self.session / "audio" / ("c" * 32 + ".wav")).unlink()
+        manager, provider = self.manager()
+        manager.submit(request())
+        self.assertEqual(self.done(manager)["code"], "video_narration_missing")
         self.assertEqual(provider.submits, [])
 
     def test_request_alias_cannot_change_its_input(self):
@@ -191,6 +206,41 @@ class FilmJobsTests(unittest.TestCase):
 
 
 class ProviderTests(unittest.TestCase):
+    def test_full_narration_and_full_video_are_preserved_without_looping(self):
+        ffmpeg = video.find_ffmpeg()
+        if not ffmpeg:
+            self.skipTest("Local encoder unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=64x64:r=24:d=2",
+                            "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "2",
+                            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(source)],
+                           check=True, capture_output=True, timeout=20)
+            for seconds in (1, 3):
+                with self.subTest(narrationSeconds=seconds):
+                    voice = root / (str(seconds) + ".wav")
+                    output = root / (str(seconds) + ".mp4")
+                    subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                                    "sine=frequency=440:sample_rate=16000:duration=" + str(seconds), str(voice)],
+                                   check=True, capture_output=True, timeout=20)
+                    video.narrate_video(ffmpeg, source, voice, output)
+                    frames = subprocess.check_output([ffmpeg, "-v", "error", "-i", str(output), "-map", "0:v:0",
+                                                      "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], timeout=20)
+                    size = 64 * 64 * 3
+                    self.assertGreaterEqual(len(frames) // size, max(2, seconds) * 24)
+                    if seconds == 3:
+                        final, previous = frames[-size:], frames[-size * 5:-size * 4]
+                        self.assertLess(sum(abs(a-b) for a,b in zip(final, previous))/size, 2,
+                                        "The final frame must remain visible while narration continues.")
+                    pcm = subprocess.check_output([ffmpeg, "-v", "error", "-ss", str(seconds - .3 if seconds == 3 else 1.5),
+                                                   "-i", str(output), "-t", "0.2", "-map", "0:a:0", "-ac", "1", "-ar", "16000",
+                                                   "-f", "s16le", "-"], timeout=20)
+                    samples = array.array("h", pcm)
+                    level = sum(abs(s) for s in samples)/max(1, len(samples))
+                    if seconds == 3: self.assertGreater(level, 100, "Narration must remain audible after the moving image ends.")
+                    else: self.assertLess(level, 10, "Short narration must not loop over the remaining video.")
+
     def test_plan_covers_all_sentences_once_and_scopes_the_scene(self):
         cards = [{"word": "CAT", "reference": "cat.png"}, {"word": "KITE", "reference": "kite.png"}]
         shots = video.plan_shots(STORY, [], cards)

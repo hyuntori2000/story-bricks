@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import wave
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urljoin, urlsplit
 from urllib.request import Request
@@ -270,7 +271,62 @@ def _atomic_bytes(path, data):
             os.unlink(temporary)
 
 
-def join_videos(ffmpeg, paths, destination):
+def narration_file(root, owner, identity):
+    """Resolve only the matching story's session-owned, already generated WAV."""
+    match = re.fullmatch(r"/audio/([0-9a-f]{32})\.wav", identity["storyAudioPath"])
+    directory = session_directory(root, owner)
+    path = (directory / "audio" / (match.group(1) + ".wav")).resolve() if match else None
+    if path is None or directory not in path.parents or not path.is_file():
+        raise VideoError("video_narration_missing", "The saved full-story narration is unavailable.", 409)
+    narration_duration(path)
+    return path
+
+
+def narration_duration(path):
+    try:
+        with wave.open(str(path), "rb") as audio:
+            duration = audio.getnframes() / audio.getframerate()
+        if not .1 <= duration < 299:
+            raise ValueError()
+        return duration
+    except (OSError, ValueError, wave.Error, EOFError, ZeroDivisionError):
+        raise VideoError("video_narration_invalid", "The saved story narration is not a playable bounded WAV.", 409) from None
+
+
+def narrate_video(ffmpeg, source, narration, destination):
+    """Preserve the full film and full narration; hold the final frame if needed."""
+    duration = narration_duration(narration)
+    probe = subprocess.run([ffmpeg, "-nostdin", "-hide_banner", "-i", str(source)],
+                           capture_output=True, timeout=30)
+    match = re.search(rb"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", probe.stderr)
+    if not match:
+        raise VideoError("video_duration_invalid", "The saved film duration is unavailable.", 502)
+    movie_duration = int(match[1]) * 3600 + int(match[2]) * 60 + float(match[3])
+    if not 0 < movie_duration < 299:
+        raise VideoError("video_duration_invalid", "The saved film duration is outside playback limits.", 502)
+    total = max(movie_duration, duration)
+    # Keep the existing film ambience under the original voice. Padding changes
+    # neither the shot order nor its playback speed and never loops the voice.
+    filters = ("[0:v:0]tpad=stop_mode=clone:stop_duration=%.6f[v];"
+               "[0:a:0]volume=0.2[ambience];"
+               "[1:a:0][ambience]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,apad[a]") % (max(0, total - movie_duration) + .1)
+    pending = destination.with_name(destination.stem + ".narrated.pending.mp4")
+    try:
+        result = subprocess.run([ffmpeg, "-nostdin", "-y", "-v", "error", "-i", str(source), "-i", str(narration),
+                                 "-filter_complex", filters, "-map", "[v]", "-map", "[a]", "-t", "%.6f" % total,
+                                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                                 "-c:a", "aac", "-ar", "48000", "-ac", "2", "-movflags", "+faststart",
+                                 "-fs", str(MAX_FILM_BYTES), str(pending)], capture_output=True, timeout=180)
+        if result.returncode or not pending.is_file() or not 24 <= pending.stat().st_size < MAX_FILM_BYTES:
+            raise VideoError("video_narration_failed", "The full story could not be added to the film.", 502)
+        with pending.open("rb") as stream:
+            _mp4(stream.read(64))
+        os.replace(pending, destination)
+    finally:
+        pending.unlink(missing_ok=True)
+
+
+def join_videos(ffmpeg, paths, destination, narration=None):
     """Normalize each real shot, then concatenate compatible H.264/AAC MP4s."""
     normalized = []
     for index, source in enumerate(paths):
@@ -299,7 +355,11 @@ def join_videos(ffmpeg, paths, destination):
         raise VideoError("video_join_failed", "The generated shots could not be joined into a playable film.", 502)
     with pending.open("rb") as stream:
         _mp4(stream.read(64))
-    os.replace(pending, destination)
+    if narration is not None:
+        narrate_video(ffmpeg, pending, narration, destination)
+        pending.unlink(missing_ok=True)
+    else:
+        os.replace(pending, destination)
     for path in normalized:
         path.unlink(missing_ok=True)
     playlist.unlink(missing_ok=True)
@@ -524,6 +584,7 @@ class StoryVideoJobs:
         archive, record = self._story(owner, identity)
         if archive != job["storyArchive"]:
             raise VideoError("video_story_changed", "The owned story archive changed.", 409)
+        narration = narration_file(self.root, owner, identity)
         with self.lock:
             self._state(job, "running")
         if not job["shots"]:
@@ -569,8 +630,9 @@ class StoryVideoJobs:
         if failure:
             raise failure
         destination = self.paths[job["jobId"]].parent / "story.mp4"
-        join_videos(self.ffmpeg, paths, destination)
+        join_videos(self.ffmpeg, paths, destination, narration=narration)
         with self.lock:
+            job["narrationEmbedded"] = True
             job["videoPath"] = "/story-videos/" + job["jobId"] + ".mp4"
             self._state(job, "ready")
         self._open_preview(job, destination)

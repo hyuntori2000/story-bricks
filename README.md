@@ -145,7 +145,7 @@ After narration and the animation invitation, the Mac validates the requested st
 
 The supplied Comfy workflow uses **Seedance 2.5 Draft**, 480p, 16:9, with each shot lasting 6–10 seconds. It uses the story's saved word-card images as references; at least one usable card is required. Both shots are submitted before waiting, then polled concurrently. Actual rendering concurrency depends on the provider.
 
-The backend combines the completed shots into an H.264/AAC MP4. The Quest downloads the movie before playing it, while the Mac saves the final file and opens a QuickTime preview. **Two minutes is a generation target, not a guaranteed completion time.** The two-scene film is a short visualization of the narrated story, not a two-minute movie.
+The backend combines the completed shots into an H.264/AAC MP4 and embeds the already saved full-story narration, starting with the film. The narration plays once, with the original film ambience reduced beneath it. If the film is shorter, its last frame holds until the narration finishes; if narration is shorter, the remaining film plays in full. Neither is cut to fit the other. The same narrated file is used in VR, Mac preview and saved-story replay. The Quest downloads the movie before playing it, while the Mac saves the final file and opens a QuickTime preview. **Two minutes is a generation target, not a guaranteed completion time.** The two-scene film is a short visualization of the narrated story, not a two-minute movie.
 
 Completed films remain in the story library. Replaying a saved film does not submit new recognition or generation requests. Public upload/share links are not implemented; the saved MP4 is available for manual sharing.
 

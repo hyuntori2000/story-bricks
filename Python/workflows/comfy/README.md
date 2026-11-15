@@ -82,3 +82,7 @@ Focused offline film checks (fake provider, temporary media, no paid requests):
 ```sh
 PYTHONPATH=Python Python/.venv/bin/python -m unittest test_comfy_story_videos
 ```
+
+## Full-story narration in the saved film
+
+The final encoder uses the existing session-owned story WAV; it makes no new speech or video API request. Narration starts with the movie and plays once. Film ambience is mixed at 20% beneath it. Output duration is the longer of the complete film and narration: a short film holds its last frame, while short narration leaves the rest of the film intact. The narrated MP4 is saved atomically and used for both Quest and Mac playback. Missing narration fails before paid shot submission. Library selection refreshes the downloaded file so an archived film repaired on the Mac does not reuse a stale unnarrated Quest cache. Replay within that selection uses the downloaded copy.

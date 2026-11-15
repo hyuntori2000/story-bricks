@@ -38,6 +38,7 @@ namespace BrailleSoundDemo
             public int generation;
             public string temporaryPath;
             public UnityWebRequest request;
+            public bool refreshSavedVideo;
         }
         sealed class HttpReply
         {
@@ -108,7 +109,8 @@ namespace BrailleSoundDemo
             CancelAll();
             active=new Job {identity=new Request {workspaceId="demo",experienceSessionId=item.experienceSessionId,
                 sessionId=item.sessionId,requestId=Guid.NewGuid().ToString("N")},head=head,
-                stillCurrent=stillCurrent,generation=generation,deadline=Time.realtimeSinceStartupAsDouble+600};
+                stillCurrent=stillCurrent,generation=generation,deadline=Time.realtimeSinceStartupAsDouble+600,
+                refreshSavedVideo=true};
             SetStatus(active,"Loading your saved animation...","animation_ready");
             StartCoroutine(DownloadAndPlay(active,item.videoPath));
             return true;
@@ -209,7 +211,9 @@ namespace BrailleSoundDemo
             bool directoryReady=true;
             try { Directory.CreateDirectory(directory); } catch(IOException) { directoryReady=false; } catch(UnauthorizedAccessException) { directoryReady=false; }
             if(!directoryReady) { Failed(job,"video_storage_unavailable");yield break; }
-            if(ValidMp4File(file))
+            // Library entries may have gained their archived narration on the Mac.
+            // Refresh on library selection; Replay still uses this downloaded file.
+            if(!job.refreshSavedVideo && ValidMp4File(file))
             {
                 savedVideoPath=file;
                 Debug.Log("[Story video] Reusing the downloaded movie for session="+job.identity.sessionId);
