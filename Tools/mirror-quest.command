@@ -14,6 +14,17 @@ if [[ -z "$serial" ]]; then
   [[ "$count" == 1 ]] || { echo "$devices"; echo "Connect one authorized Quest, or pass its serial."; exit 1; }
   serial="$(echo "$devices" | awk '$2 == "device" {print $1}')"
 fi
+mkdir -p runtime/launcher
+mirror_pid="$(cat runtime/launcher/mirror.pid 2>/dev/null || true)"
+mirror_command=""
+if [[ "$mirror_pid" =~ ^[0-9]+$ ]]; then
+  mirror_command="$(ps -p "$mirror_pid" -o command= 2>/dev/null || true)"
+fi
+if [[ "$mirror_command" == *scrcpy* && "$mirror_command" == *"--serial=$serial"* ]]; then
+  echo "The Quest live window is already running."
+  exit 0
+fi
+printf '%s\n' "$$" > runtime/launcher/mirror.pid
 export ADB="$adb_tool"
 echo "Quest live view: wear and unlock the headset. Audio remains in the headset."
 echo "Closing the mirror does not stop Story Bricks or the Mac servers."

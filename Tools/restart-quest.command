@@ -4,7 +4,7 @@ project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$project_dir"
 if [[ "${1:-}" == --help ]]; then
   echo "Usage: bash Tools/restart-quest.command [QUEST_SERIAL]"
-  echo "Starts missing local services, restores USB routes, and restarts the installed app."
+  echo "Starts missing services, restores USB routes, opens the live screen, restarts the app, and shows live status."
   echo "Active app progress resets; archived stories and media are preserved."
   exit 0
 fi
@@ -49,6 +49,8 @@ start_service 8766 "Voice and media backend" runtime/launcher/voice.log Python/.
 start_service 8769 "Recognition receiver" runtime/launcher/recognition.log /bin/bash Tools/start-physical-story-receiver.sh
 "$adb_tool" -s "$serial" reverse tcp:8766 tcp:8766
 "$adb_tool" -s "$serial" reverse tcp:8769 tcp:8769
+echo "Opening the Quest live screen..."
+ADB="$adb_tool" nohup /bin/bash "$project_dir/Tools/mirror-quest.command" "$serial" >>runtime/launcher/mirror.log 2>&1 </dev/null &
 echo "Restarting Story Bricks. Active app progress resets; saved stories and videos remain."
 "$adb_tool" -s "$serial" shell am force-stop org.braillelab.storydemo
 "$adb_tool" -s "$serial" shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n org.braillelab.storydemo/com.unity3d.player.UnityPlayerActivity
