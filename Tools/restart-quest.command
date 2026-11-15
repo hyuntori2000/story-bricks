@@ -54,3 +54,5 @@ echo "Restarting Story Bricks. Active app progress resets; saved stories and vid
 "$adb_tool" -s "$serial" shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n org.braillelab.storydemo/com.unity3d.player.UnityPlayerActivity
 echo "Story Bricks launched. Wear and unlock the headset. Keep USB connected for Mac services."
 echo "Capture monitor: http://127.0.0.1:8769/"
+
+exec /bin/bash "$project_dir/Tools/live-status.command" --serial "$serial" --adb "$adb_tool"
