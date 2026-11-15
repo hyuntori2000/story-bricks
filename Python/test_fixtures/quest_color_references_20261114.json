@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "dictionary": {
+    "version": 1,
+    "scope": "User-assigned Quest color code, not Braille or OCR",
+    "minimum_margin_delta_e76": 2.0,
+    "entries": [
+      {
+        "letter": "J",
+        "color_name": "Quest color J",
+        "lab": [
+          58.843994140625,
+          0.453125,
+          41.328125
+        ],
+        "nearest_other_distance_delta_e76": 18.986819452906264,
+        "acceptance_radius_delta_e76": 8.544068753807819
+      },
+      {
+        "letter": "U",
+        "color_name": "Quest color U",
+        "lab": [
+          70.5810546875,
+          -2.28125,
+          26.65625
+        ],
+        "nearest_other_distance_delta_e76": 18.986819452906264,
+        "acceptance_radius_delta_e76": 8.544068753807819
+      },
+      {
+        "letter": "D",
+        "color_name": "Quest color D",
+        "lab": [
+          32.513427734375,
+          -0.796875,
+          -14.796875
+        ],
+        "nearest_other_distance_delta_e76": 46.90506889792826,
+        "acceptance_radius_delta_e76": 15
+      },
+      {
+        "letter": "Y",
+        "color_name": "Quest color Y",
+        "lab": [
+          27.313232421875,
+          11.3125,
+          30.21875
+        ],
+        "nearest_other_distance_delta_e76": 35.150151818247394,
+        "acceptance_radius_delta_e76": 15
+      },
+      {
+        "letter": "F",
+        "color_name": "Quest color F",
+        "lab": [
+          28.57666015625,
+          49.71875,
+          38.875
+        ],
+        "nearest_other_distance_delta_e76": 39.38993466312159,
+        "acceptance_radius_delta_e76": 15
+      },
+      {
+        "letter": "O",
+        "color_name": "Quest color O",
+        "lab": [
+          29.254150390625,
+          -29.515625,
+          24.703125
+        ],
+        "nearest_other_distance_delta_e76": 41.244697510318424,
+        "acceptance_radius_delta_e76": 15
+      },
+      {
+        "letter": "X",
+        "color_name": "Quest color X",
+        "lab": [
+          59.429931640625,
+          8.15625,
+          63.828125
+        ],
+        "nearest_other_distance_delta_e76": 23.789313935452853,
+        "acceptance_radius_delta_e76": 10.705191270953785
+      }
+    ]
+  },
+  "calibrationFrame": {
+    "sessionId": "00c0e42f45a44be3b6ea210e2ba55a3b",
+    "frameId": "4d777cd64bbb42ad85834fe06050be5b"
+  },
+  "calibrationFrames": [
+    {
+      "sessionId": "378f1b4670014d64ab5c0fad980ee410",
+      "frameId": "c7ef0878b56f44d2acf4dfc5a38a640e"
+    },
+    {
+      "sessionId": "00c0e42f45a44be3b6ea210e2ba55a3b",
+      "frameId": "4d777cd64bbb42ad85834fe06050be5b"
+    }
+  ]
+}

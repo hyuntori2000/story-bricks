@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 1,
+  "title": "Judy / Fox / Rain / Tree — filming storyboard",
+  "sourceUrl": "https://docs.google.com/spreadsheets/d/1e4gDACrkfvnrBmmiE3Q0U38l2DvOAqA9aiKvWN8m0qw/edit?gid=1979028898",
+  "sourceTab": "Demo script",
+  "words": [
+    "JUDY",
+    "FOX",
+    "RAIN",
+    "TREE"
+  ],
+  "storyWordCount": 4,
+  "notes": [
+    "Read-only snapshot of the user-provided storyboard. Source sheet has not been edited.",
+    "Spoken lines are preserved; visual directions are condensed. Media files must be uploaded separately.",
+    "The storyboard says Done by voice; the current capture implementation uses double pinch followed by a 3-second timer. Voice-triggered capture is not implemented.",
+    "Judy Studio uses manually selected cue keys for the two scripted questions per word. Demo Lab currently asks one live question per accepted word.",
+    "The dashboard/VR playback accepts a supplied video. Orbis automatic generation remains a backend integration task."
+  ],
+  "steps": [
+    {
+      "number": 1,
+      "cueKey": "judy-01-start",
+      "word": "",
+      "event": "manual",
+      "sound": "Shimmer chime",
+      "voice": "Hi! I'm Story Bricks. Do you want to make a new story, or hear a saved story?",
+      "judyResponse": "Make a new story!",
+      "visual": "New story / saved story menu; chosen button lights up."
+    },
+    {
+      "number": 2,
+      "cueKey": "judy-02-first-word",
+      "word": "JUDY",
+      "event": "manual",
+      "sound": "",
+      "voice": "Who is your story about? Build the word, then say 'done'.",
+      "judyResponse": "Builds JUDY; says Done!",
+      "visual": "Empty stage above the board; a short storyteller hint."
+    },
+    {
+      "number": 3,
+      "cueKey": "judy-03-judy-read",
+      "word": "JUDY",
+      "event": "word.accepted",
+      "sound": "Bright ding",
+      "voice": "J-U-D-Y. Judy! Who else is in the story?",
+      "judyResponse": "Builds FOX; says Done!",
+      "visual": "JUDY word tag; Judy character appears above her word."
+    },
+    {
+      "number": 4,
+      "cueKey": "judy-04-fox-question-1",
+      "word": "FOX",
+      "event": "question.started",
+      "sound": "Bright ding, then rising bloop",
+      "voice": "F-O-X. Fox! What does your fox sound like?",
+      "judyResponse": "It goes yip yip when it runs.",
+      "visual": "FOX tag; fox outline and sound ripple; answer caption."
+    },
+    {
+      "number": 5,
+      "cueKey": "judy-05-fox-question-2",
+      "word": "FOX",
+      "event": "question.started",
+      "sound": "Rising bloop",
+      "voice": "Is its tail soft or spiky?",
+      "judyResponse": "Soft like a pillow.",
+      "visual": "Answer caption; fox's tail fills with colour."
+    },
+    {
+      "number": 6,
+      "cueKey": "judy-06-next-rain",
+      "word": "RAIN",
+      "event": "manual",
+      "sound": "Sparkle",
+      "voice": "What happens next? Build the word.",
+      "judyResponse": "Builds RAIN; says Done!",
+      "visual": "Scene holds while Judy builds."
+    },
+    {
+      "number": 7,
+      "cueKey": "judy-07-rain-question-1",
+      "word": "RAIN",
+      "event": "question.started",
+      "sound": "Bright ding, then rising bloop",
+      "voice": "R-A-I-N. Uh oh, here comes the rain! What does it sound like?",
+      "judyResponse": "Tap tap tap, like tiny drums.",
+      "visual": "RAIN tag; outlined drops, sound ripples and answer caption."
+    },
+    {
+      "number": 8,
+      "cueKey": "judy-08-rain-question-2",
+      "word": "RAIN",
+      "event": "question.started",
+      "sound": "Rising bloop",
+      "voice": "Is the rain warm or cold?",
+      "judyResponse": "Cold, it tickles my nose.",
+      "visual": "Answer caption; rain fills with a cool colour."
+    },
+    {
+      "number": 9,
+      "cueKey": "judy-09-next-tree",
+      "word": "TREE",
+      "event": "manual",
+      "sound": "Sparkle",
+      "voice": "Where do Judy and the fox go? Build the word.",
+      "judyResponse": "Builds TREE; says Done!",
+      "visual": "Scene holds while Judy builds."
+    },
+    {
+      "number": 10,
+      "cueKey": "judy-10-tree-question-1",
+      "word": "TREE",
+      "event": "question.started",
+      "sound": "Bright ding, then rising bloop",
+      "voice": "T-R-E-E. Judy and the fox need somewhere to hide! What does the tree sound like when the rain hits its leaves?",
+      "judyResponse": "Shhh shhh, like it's whispering.",
+      "visual": "TREE tag; outlined tree and ripple through its leaves."
+    },
+    {
+      "number": 11,
+      "cueKey": "judy-11-tree-question-2",
+      "word": "TREE",
+      "event": "question.started",
+      "sound": "Rising bloop",
+      "voice": "Is the tree big or small?",
+      "judyResponse": "Super big, bigger than my house.",
+      "visual": "Answer caption; tree grows tall and fills with colour."
+    },
+    {
+      "number": 12,
+      "cueKey": "judy-12-finished",
+      "word": "",
+      "event": "manual",
+      "sound": "Sparkle, then rising bloop",
+      "voice": "That's awesome! Is your story finished, or do you want to add another word?",
+      "judyResponse": "Yes, I'm done.",
+      "visual": "Scene holds."
+    },
+    {
+      "number": 13,
+      "cueKey": "judy-13-ready",
+      "word": "",
+      "event": "story.ready",
+      "sound": "Drum-roll shimmer",
+      "voice": "Your story is ready. Here it comes!",
+      "judyResponse": "Listens",
+      "visual": "Judy's story is ready; scene resets to its opening."
+    },
+    {
+      "number": 14,
+      "cueKey": "judy-14-story",
+      "word": "",
+      "event": "video.ready",
+      "sound": "Story sound effects",
+      "voice": "Narration follows the 12 story beats.",
+      "judyResponse": "Listens",
+      "visual": "Full animation with narration subtitles."
+    },
+    {
+      "number": 15,
+      "cueKey": "judy-15-end",
+      "word": "",
+      "event": "manual",
+      "sound": "Success melody",
+      "voice": "The end. What a story, Judy! I saved it, so you can hear it again anytime.",
+      "judyResponse": "",
+      "visual": "Judy's story: Judy / Fox / Rain / Tree; Watch again / Done."
+    }
+  ],
+  "narration": [
+    {
+      "number": 1,
+      "cueKey": "narration-01-judy-appears",
+      "event": "manual",
+      "sound": "",
+      "voice": "Once upon a time, there was a kid named Judy.",
+      "visual": "Judy appears above the board.",
+      "colourRule": "Judy in colour"
+    },
+    {
+      "number": 2,
+      "cueKey": "narration-02-walking",
+      "event": "manual",
+      "sound": "Stomp stomp",
+      "voice": "Judy went walking into the forest, stomp, stomp, stomp.",
+      "visual": "Judy walks; a forest path forms.",
+      "colourRule": "Forest and path in outline"
+    },
+    {
+      "number": 3,
+      "cueKey": "narration-03-fox-arrives",
+      "event": "manual",
+      "sound": "Yip yip",
+      "voice": "Then Judy heard something… Yip yip! It was a little fox, running fast.",
+      "visual": "Fox runs in with sound ripples.",
+      "colourRule": "Fox in colour"
+    },
+    {
+      "number": 4,
+      "cueKey": "narration-04-fox-tail",
+      "event": "manual",
+      "sound": "",
+      "voice": "Its tail was soft, soft like a pillow.",
+      "visual": "The fox's tail swishes.",
+      "colourRule": "Tail in colour"
+    },
+    {
+      "number": 5,
+      "cueKey": "narration-05-friends",
+      "event": "manual",
+      "sound": "",
+      "voice": "Judy and the fox became friends right away.",
+      "visual": "Judy and fox stand side by side.",
+      "colourRule": ""
+    },
+    {
+      "number": 6,
+      "cueKey": "narration-06-rain-starts",
+      "event": "manual",
+      "sound": "Rain starts, building",
+      "voice": "Suddenly, the sky got dark. Tap tap tap, like tiny drums.",
+      "visual": "Sky darkens; rain begins with ripples.",
+      "colourRule": "Rain in colour; sky in outline"
+    },
+    {
+      "number": 7,
+      "cueKey": "narration-07-cold-rain",
+      "event": "manual",
+      "sound": "",
+      "voice": "The rain was cold, and it tickled Judy's nose.",
+      "visual": "A drop lands on Judy's nose.",
+      "colourRule": "Rain in colour"
+    },
+    {
+      "number": 8,
+      "cueKey": "narration-08-running",
+      "event": "manual",
+      "sound": "Stomp stomp + yip yip together",
+      "voice": "\"Quick, follow me!\" said Judy. Judy and the fox ran together.",
+      "visual": "Judy and fox run together.",
+      "colourRule": ""
+    },
+    {
+      "number": 9,
+      "cueKey": "narration-09-tree",
+      "event": "manual",
+      "sound": "",
+      "voice": "They found a tree, super big, bigger than Judy's house.",
+      "visual": "A tree rises above a house beside it.",
+      "colourRule": "Tree in colour; house in outline"
+    },
+    {
+      "number": 10,
+      "cueKey": "narration-10-leaves",
+      "event": "manual",
+      "sound": "Leaves rustling",
+      "voice": "Shhh shhh, the leaves whispered as the rain came down.",
+      "visual": "Leaves shake with a sound ripple.",
+      "colourRule": "Leaves in colour"
+    },
+    {
+      "number": 11,
+      "cueKey": "narration-11-hiding",
+      "event": "manual",
+      "sound": "Rain softens",
+      "voice": "Judy and the fox hid underneath, all cozy and dry.",
+      "visual": "They sit under the tree; rain thins.",
+      "colourRule": ""
+    },
+    {
+      "number": 12,
+      "cueKey": "narration-12-ending",
+      "event": "manual",
+      "sound": "",
+      "voice": "And they listened to the rain and the whispering tree until it was time to go home. The end.",
+      "visual": "Scene settles into the end card.",
+      "colourRule": ""
+    }
+  ]
+}

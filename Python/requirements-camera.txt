@@ -1,0 +1,3 @@
+# Isolated from the live voice/story backend. Compatible with Python 3.9+.
+numpy>=1.24,<3
+opencv-python-headless>=4.10,<5

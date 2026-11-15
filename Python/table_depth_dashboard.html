@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Table Depth — Camera Monitor</title>
+<style>
+:root{color-scheme:dark;--bg:#111416;--panel:#191e21;--line:#30383c;--muted:#a0adb4;--text:#f0f4f5;--cyan:#62e2e6;--amber:#e6bc75;--red:#f19292}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1320px;margin:auto;padding:26px}header{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:22px}.eyebrow{color:var(--cyan);font-size:10px;letter-spacing:.18em;font-weight:700;text-transform:uppercase}h1{font-size:25px;letter-spacing:-.7px;margin:5px 0}h2{font-size:14px;font-weight:600;margin:0}.sub{color:var(--muted);margin:0;font-size:12px}.pill{border:1px solid var(--line);border-radius:30px;padding:7px 11px;color:var(--muted);font-size:11px;white-space:nowrap}.pill:before{content:"";display:inline-block;width:6px;height:6px;background:currentColor;border-radius:50%;margin-right:7px}.pill.online{color:var(--cyan)}.pill.offline{color:var(--red)}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}.metric{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:13px 15px}.metric label,dt{display:block;color:var(--muted);font-size:11px}.metric strong{display:block;font-size:22px;font-weight:500;margin-top:3px;font-variant-numeric:tabular-nums}.grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr);gap:18px}.card{border:1px solid var(--line);background:var(--panel);border-radius:14px;overflow:hidden}.bar{padding:14px 17px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}.tag{color:var(--cyan);font-size:10px;letter-spacing:.08em;text-transform:uppercase}.stage{background:#0c1012;min-height:330px;display:flex;align-items:center;justify-content:center;position:relative}.stage canvas{width:100%;height:auto;display:block}.empty{padding:48px 24px;text-align:center;max-width:360px}.empty svg{color:#59696f;margin-bottom:15px}.empty h3{font-size:13px;letter-spacing:.12em;font-weight:600;margin:0 0 10px}.empty p{color:var(--muted);font-size:12px;margin:0}.caption{padding:11px 17px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}.stack{display:flex;flex-direction:column;gap:18px}.crop-stage{min-height:180px}.crop-stage canvas{max-height:320px;width:100%;object-fit:contain}.data{padding:7px 17px 14px}dl{margin:0}.row{display:flex;gap:15px;justify-content:space-between;border-bottom:1px solid #293034;padding:9px 0;align-items:baseline}.row:last-child{border:0}dd{margin:0;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px}.note{padding:0 17px 15px;color:var(--muted);font-size:11px}.below{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.notice{border:1px solid var(--line);border-radius:10px;padding:11px 15px;color:var(--muted);font-size:12px;margin-bottom:18px}.notice.error{border-color:#754346;color:var(--red)}details{margin-top:18px;border:1px solid var(--line);border-radius:10px;padding:12px 16px}summary{cursor:pointer;color:var(--muted);font-size:12px}pre{white-space:pre-wrap;word-break:break-word;max-height:350px;overflow:auto;color:#c2d2d8;font-size:11px}a{color:var(--cyan);font-size:11px}footer{margin-top:18px;color:#839299;font-size:11px}[hidden]{display:none!important}@media(max-width:850px){.grid,.below{grid-template-columns:1fr}.stage{min-height:240px}main{padding:18px}}@media(max-width:430px){header{align-items:flex-start;flex-direction:column}.summary{gap:7px}.metric{padding:10px}.metric strong{font-size:19px}h1{font-size:23px}}
+</style>
+</head>
+<body><main>
+<header><div><div class="eyebrow">Story Bricks / diagnostic</div><h1>Table Depth — Camera Monitor</h1><p class="sub">Single captures from Quest, with the selected hand region.</p></div><div id="receiver" class="pill">Checking receiver</div></header>
+<div class="summary"><div class="metric"><label>Frames received</label><strong id="count">—</strong></div><div class="metric"><label>Photo resolution</label><strong id="resolution">—</strong></div><div class="metric"><label>Since received on Mac</label><strong id="age">—</strong></div></div>
+<div id="notice" class="notice" role="status" aria-live="polite">Checking the local receiver. No Quest connection has been verified.</div>
+<div class="grid"><section class="card"><div class="bar"><h2>Camera photo</h2><span class="tag">Full frame</span></div><div class="stage"><canvas id="photo" hidden aria-label="Last received Quest camera photo with its selected region"></canvas><div id="empty" class="empty"><svg width="48" height="40" viewBox="0 0 48 40" fill="none" aria-hidden="true"><path d="M5 11h9l4-6h12l4 6h9v25H5V11Z" stroke="currentColor" stroke-width="1.5"/><circle cx="24" cy="23" r="8" stroke="currentColor" stroke-width="1.5"/></svg><h3 id="emptyTitle">WAITING FOR QUEST</h3><p id="emptyText">No image has been received. Your first accepted capture will appear here.</p></div></div><div class="caption" id="photoCaption">Cyan outline = selected region. This is a capture monitor, not a continuous video stream.</div></section>
+<div class="stack"><section class="card"><div class="bar"><h2>Selected region</h2><span class="tag">Same frame</span></div><div class="stage crop-stage"><canvas id="crop" hidden aria-label="Crop from the same received camera image"></canvas><div id="cropEmpty" class="empty"><p>The crop appears after a valid region arrives.</p></div></div><div class="caption" id="cropCaption">No block or letter recognition is performed.</div></section>
+<section class="card"><div class="bar"><h2>Recorded hand sample</h2><span id="hand" class="tag">—</span></div><dl class="data"><div class="row"><dt>Position X / Y / Z</dt><dd id="position" class="mono">—</dd></div><div class="row"><dt>Finger to reference surface</dt><dd id="gap">—</dd></div><div class="row"><dt>Head to hand point</dt><dd id="distance">—</dd></div><div class="row"><dt>Reference surface height</dt><dd id="surface">—</dd></div><div class="row"><dt>Sample time · Quest monotonic</dt><dd id="sample">—</dd></div><div class="row"><dt>Sample age at confirmation</dt><dd id="sampleAge">—</dd></div><div class="row"><dt>Sample age at capture observation</dt><dd id="captureSampleAge">—</dd></div></dl><div class="note">This is a recorded hand point, not a measured brick center. A positive gap is above the reference surface.</div></section></div></div>
+<div class="below"><section class="card"><div class="bar"><h2>Capture timing</h2></div><dl class="data"><div class="row"><dt>Capture timestamp · UTC</dt><dd id="captureTime" class="mono">—</dd></div><div class="row"><dt>Received on Mac · local time</dt><dd id="receivedTime">—</dd></div><div class="row"><dt>Request → upload start</dt><dd id="uploadTiming">Not received</dd></div><div class="row"><dt>Request → acknowledgement</dt><dd id="ackTiming">Not received</dd></div><div class="row"><dt>Python crop processing</dt><dd id="cropTiming">Not received</dd></div></dl><div class="note">Quest monotonic intervals are separate from camera UTC timestamps. Acknowledgement timing is normally logged on Quest.</div></section>
+<section class="card"><div class="bar"><h2>Frame identity</h2><a id="imageLink" hidden target="_blank" rel="noopener">Open full image</a></div><dl class="data"><div class="row"><dt>Session</dt><dd id="session" class="mono">—</dd></div><div class="row"><dt>Frame</dt><dd id="frame" class="mono">—</dd></div><div class="row"><dt>Region pixels · x, y, width, height</dt><dd id="region" class="mono">—</dd></div><div class="row"><dt>Region retained</dt><dd id="retained">—</dd></div><div class="row"><dt>Receiver result</dt><dd id="result">—</dd></div></dl></section></div>
+<details><summary>Inspect full frame metadata</summary><pre id="metadata">No frame received.</pre><a href="/latest.json" target="_blank" rel="noopener">Open current receiver JSON</a></details>
+<footer>Receiver availability does not confirm a headset connection. Images and metadata are displayed only after receipt.</footer>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), set=(id,value)=>{$(id).textContent=value;};
+let online=false, polling=false, desiredKey='', shownKey='', generation=0, displayed=null, imageAbort=null, loading=false, issue='';
+const finite=v=>typeof v==='number'&&Number.isFinite(v);
+const number=(v,d=2)=>finite(v)?v.toFixed(d):'—';
+const meters=v=>finite(v)?number(v,3)+' m':'—';
+function status(){
+  $('receiver').className='pill '+(online?'online':'offline'); set('receiver',online?'Receiver online':'Receiver offline');
+  $('notice').className='notice'+(!online?' error':'');
+  if(!online){set('notice',displayed?'Receiver unavailable. The photo below is the last received frame; it is not updating.':'Receiver unavailable. Start the table-depth receiver on this Mac.');set('emptyTitle','RECEIVER OFFLINE');set('emptyText','No live receiver response. Waiting to reconnect.');}
+  else if(issue){set('notice',issue);}
+  else if(loading){set('notice','Loading an exact-frame image. Previous data stays paired with its previous photo until loading completes.');}
+  else if(!displayed){set('notice','Receiver ready — waiting for the first Quest capture. Headset connection has not been verified.');set('emptyTitle','WAITING FOR QUEST');set('emptyText','No image has been received. Your first accepted capture will appear here.');}
+  else set('notice','Showing the last received capture and its matching metadata. New accepted captures replace this snapshot.');
+}
+function clearFrame(){
+  desiredKey='';shownKey='';generation++;if(imageAbort)imageAbort.abort();loading=false;displayed=null;issue='';
+  for(const id of ['photo','crop','imageLink'])$(id).hidden=true;$('empty').hidden=false;$('cropEmpty').hidden=false;
+  for(const id of ['resolution','age','hand','position','gap','distance','surface','sample','sampleAge','captureSampleAge','captureTime','receivedTime','session','frame','region','retained','result'])set(id,'—');
+  for(const id of ['uploadTiming','ackTiming','cropTiming'])set(id,'Not received');
+  set('metadata','No frame received.');set('cropCaption','No block or letter recognition is performed.');
+  set('photoCaption','Cyan outline = selected region. This is a capture monitor, not a continuous video stream.');
+}
+function duration(a,b){return finite(a)&&finite(b)&&a>0&&b>=a?number((b-a)*1000,1)+' ms':null;}
+function paint(img,latest,key,url){
+  const m=latest.metadata,h=m.handApproach||{},r=m.recognitionRegion||{},t=m.captureTimings||{},reply=latest.response||{};
+  const c=$('photo');c.width=img.naturalWidth;c.height=img.naturalHeight;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);
+  const validROI=[r.x,r.y,r.width,r.height].every(Number.isInteger)&&r.x>=0&&r.y>=0&&r.width>0&&r.height>0&&r.x+r.width<=c.width&&r.y+r.height<=c.height;
+  $('crop').hidden=!validROI;$('cropEmpty').hidden=validROI;
+  if(validROI){ctx.strokeStyle='#62e2e6';ctx.lineWidth=Math.max(2,c.width/360);ctx.strokeRect(r.x+.5,r.y+.5,r.width-1,r.height-1);const crop=$('crop');crop.width=r.width;crop.height=r.height;crop.getContext('2d').drawImage(img,r.x,r.y,r.width,r.height,0,0,r.width,r.height);set('cropCaption',r.width+' × '+r.height+' px · '+(r.clipped?'Clipped at image edge':'Inside full image'));}
+  else set('cropCaption','No valid region is available for this frame.');
+  c.hidden=false;$('empty').hidden=true;displayed=latest;shownKey=key;
+  set('resolution',c.width+' × '+c.height);set('hand',typeof h.hand==='string'?h.hand+' hand':'—');
+  const p=h.positionWorld;set('position',p&&['x','y','z'].every(a=>finite(p[a]))?[p.x,p.y,p.z].map(v=>v.toFixed(3)).join(' / ')+' m':'—');
+  set('gap',finite(h.signedGapMeters)?(h.signedGapMeters>=0?'+':'')+number(h.signedGapMeters*100,1)+' cm':'—');
+  set('distance',meters(h.headToPointDistanceMeters));set('surface',meters(h.surfaceHeightMeters));set('sample',finite(h.sampleMonotonicSeconds)?number(h.sampleMonotonicSeconds,3)+' s':'—');
+  set('sampleAge',finite(h.sampleAgeAtConfirmationSeconds)?number(h.sampleAgeAtConfirmationSeconds*1000,0)+' ms'+(finite(h.frameAgeAtConfirmation)?' · '+h.frameAgeAtConfirmation+' frames':''):'—');
+  set('captureSampleAge',finite(h.sampleAgeAtCaptureObservationSeconds)?number(h.sampleAgeAtCaptureObservationSeconds*1000,0)+' ms':'—');
+  set('captureTime',typeof m.captureTimestampUtc==='string'?m.captureTimestampUtc:'—');
+  const receive=Date.parse(reply.receivedAtUtc);set('receivedTime',Number.isFinite(receive)?new Date(receive).toLocaleString():'—');
+  set('uploadTiming',duration(t.requestMonotonicSeconds,t.uploadStartedMonotonicSeconds)||'Not received');
+  set('ackTiming',duration(t.requestMonotonicSeconds,t.acknowledgedMonotonicSeconds)||'Measured on Quest');
+  const cropMs=reply.recognition&&reply.recognition.pythonCropMs;set('cropTiming',finite(cropMs)?number(cropMs,2)+' ms':'Not received');
+  set('session',m.sessionId);set('frame',m.frameId);set('region',validROI?[r.x,r.y,r.width,r.height].join(', '):'Unavailable');
+  set('retained',finite(r.retainedFraction)?number(r.retainedFraction*100,1)+'%':'—');set('result',reply.status||'Received');set('metadata',JSON.stringify(latest,null,2));
+  $('imageLink').href=url;$('imageLink').hidden=false;set('photoCaption','Frozen capture · cyan outline shows the hand-selected region in this exact image.');updateAge();
+}
+function updateAge(){if(!displayed)return;const time=Date.parse(displayed.response&&displayed.response.receivedAtUtc);const age=(Date.now()-time)/1000;set('age',Number.isFinite(age)&&age>=0?(age<60?Math.floor(age)+' s':Math.floor(age/60)+'m '+Math.floor(age%60)+'s'):'Clock mismatch');}
+async function loadFrame(latest,key,token){
+  if(imageAbort)imageAbort.abort();const controller=new AbortController();imageAbort=controller;const timer=setTimeout(()=>controller.abort(),6000);
+  const m=latest.metadata,url='/latest.jpg?'+new URLSearchParams({sessionId:m.sessionId,frameId:m.frameId});let blobUrl='';
+  try{const response=await fetch(url,{cache:'no-store',signal:controller.signal});if(response.status===409){if(token===generation){desiredKey='';issue='A newer frame arrived during loading. Retrying the latest exact frame.';}return;}if(!response.ok)throw new Error('Image unavailable');
+    const blob=await response.blob();blobUrl=URL.createObjectURL(blob);const img=new Image();img.src=blobUrl;await img.decode();
+    if(token!==generation||key!==desiredKey)return;if(img.naturalWidth!==m.imageWidth||img.naturalHeight!==m.imageHeight)throw new Error('Image dimensions do not match metadata');
+    paint(img,latest,key,url);issue='';
+  }catch(error){if(token===generation){desiredKey='';issue='Frame metadata arrived, but its matching image is unavailable. Retrying; mismatched images are never shown.';}}
+  finally{clearTimeout(timer);if(blobUrl)URL.revokeObjectURL(blobUrl);if(token===generation){loading=false;status();}}
+}
+async function poll(){
+  if(polling)return;polling=true;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),4000);
+  try{const response=await fetch('/latest.json',{cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error('Receiver unavailable');const state=await response.json();if(!state||typeof state!=='object'||!Number.isInteger(state.receivedCount))throw new Error('Invalid receiver state');online=true;set('count',state.receivedCount);
+    if(!state.latest||state.receivedCount===0){if(displayed||desiredKey)clearFrame();issue='';}
+    else{const m=state.latest.metadata;if(!m||typeof m.sessionId!=='string'||typeof m.frameId!=='string'||!Number.isInteger(m.imageWidth)||!Number.isInteger(m.imageHeight)||m.imageWidth<1||m.imageHeight<1||m.imageWidth*m.imageHeight>40000000)throw new Error('Invalid frame metadata');const key=m.sessionId+':'+m.frameId;
+      if(key!==desiredKey&&key!==shownKey){desiredKey=key;generation++;loading=true;issue='';void loadFrame(state.latest,key,generation);}}
+  }catch(error){online=false;}
+  finally{clearTimeout(timer);polling=false;status();}
+}
+void poll();setInterval(poll,750);setInterval(updateAge,1000);
+</script></body></html>

@@ -1,0 +1,14 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/Scenes/PhysicalStoryDemo.unity
+    guid: a4cf058c81778498495408d5ab0a7f00
+  m_configObjects:
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: f5d7160e8a8294c0194d7514917c2ffa, type: 2}
+    com.unity.xr.openxr.settings4: {fileID: 11400000, guid: 87f32554de48342d59c3c7228ddc3141, type: 2}
+  m_UseUCBPForAssetBundles: 0

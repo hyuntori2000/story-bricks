@@ -1,0 +1,49 @@
+name: Design boundary
+
+# This event uses the base-branch workflow. The PR checkout below is data only:
+# no head scripts, dependency installers, actions, tests or build hooks run.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  design-boundary:
+    name: Design boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch revisions for comparison only
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.number }}/head
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Execute the guard from the trusted base commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          base = os.environ["BASE_SHA"]
+          head = os.environ["HEAD_SHA"]
+          source = subprocess.run(
+              ["git", "show", base + ":Tools/check-design-boundary.py"],
+              check=True, stdout=subprocess.PIPE,
+          ).stdout
+          trusted = Path(os.environ["RUNNER_TEMP"]) / "trusted-design-boundary.py"
+          trusted.write_bytes(source)
+          result = subprocess.run([
+              sys.executable, str(trusted), "--base", base, "--head", head,
+              "--branch", os.environ["HEAD_BRANCH"],
+          ])
+          raise SystemExit(result.returncode)
+          PY

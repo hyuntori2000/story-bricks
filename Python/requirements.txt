@@ -1,0 +1,2 @@
+# The REST calls use Python's standard library. Realtime speech uses this client.
+websocket-client>=1.8,<2

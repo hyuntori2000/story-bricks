@@ -1,0 +1,28 @@
+name: Focused Python checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check local voice contracts without external API calls
+        run: python -m unittest discover -s Python -p test_live_backend.py
+      - name: Check designer scope and rename protection
+        run: python -m unittest discover -s Tests/Python -p test_design_boundary.py

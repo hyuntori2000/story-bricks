@@ -1,0 +1,19 @@
+# Until designer GitHub handles are explicitly assigned, the project owner
+# reviews every change. Do not invent team/individual accounts here.
+* @hyuntori2000
+
+# These entries document the shared boundaries and protect the policy itself.
+/AGENTS.md @hyuntori2000
+**/AGENTS.md @hyuntori2000
+/.github/ @hyuntori2000
+/Python/ @hyuntori2000
+/Tools/ @hyuntori2000
+/Tests/ @hyuntori2000
+/ProjectSettings/ @hyuntori2000
+/Packages/ @hyuntori2000
+/Assets/BrailleSoundDemo/Runtime/ @hyuntori2000
+/Assets/BrailleSoundDemo/Editor/ @hyuntori2000
+/Assets/BrailleSoundDemo/Tests/ @hyuntori2000
+/Assets/CoreRuntime/ @hyuntori2000
+/Assets/Scenes/ @hyuntori2000
+/Config/ @hyuntori2000
