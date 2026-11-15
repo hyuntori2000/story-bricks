@@ -1,5 +1,17 @@
 # Keep the shared functions stable
 
+## Owner development workflow
+
+The project owner develops shared functions on `dev/core-functions`. Use `dev/<task>` for a separate owner-authorized task when appropriate. Check the current branch before editing; switch off `main` before making changes.
+
+Commit and push task-related source and documentation changes to the development branch at meaningful checkpoints after relevant checks. Preserve unrelated local work. Never include keys, captured media, generated runtime data, environments or builds.
+
+Do not commit or push development work directly to `main`, and do not merge into `main` without the owner's explicit request. At a completed development milestone, tell the owner whether the branch is ready to merge, with the relevant validation results and any remaining device checks or risks. Recommending a merge is not permission to perform it.
+
+These branch rules apply to owner development as well as AI-assisted work. They do not expand a designer's permission to change core functions.
+
+## Designer scope
+
 Default designer and AI-assisted design work is limited to:
 
 - `Assets/DesignerWorkspace/` — Unity prefabs, presentation components and media.

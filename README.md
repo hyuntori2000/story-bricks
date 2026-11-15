@@ -49,6 +49,8 @@ The scripts support `UNITY_EDITOR` and `ADB` overrides. Designers do not need AP
 
 ## Keep changes separate
 
+Owner/backend development uses `dev/core-functions` (or `dev/<task>` for a separate task). Commit and push development changes there. Keep `main` as the shared baseline; recommend merging after the relevant checks and device testing, and merge only when the owner explicitly requests it.
+
 Designers use `design/*` branches and only their three folders above. Preserve Unity `.meta` files. The repository includes English AI instructions, CODEOWNERS and a design-boundary check. Those are review controls; they are not a local filesystem lock. Do not merge core changes without the owner's review.
 
 GitHub declined enforced branch protection for this private repository on the current account plan. Review design pull requests manually before merging, and do not push design work directly to `main`.
