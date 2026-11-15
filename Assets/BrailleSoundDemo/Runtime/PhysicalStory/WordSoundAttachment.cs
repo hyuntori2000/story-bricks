@@ -14,9 +14,14 @@ namespace BrailleSoundDemo.PhysicalStory
         readonly float[] audioSamples=new float[128];
         float restingStartWidth, restingEndWidth, activity, energy, phase;
         bool visualPlaying, visualChanged;
+        bool imageDisplayed, imageReplayTaken, imageReplayCancelled, primaryStarted, primaryCompleted;
+        AudioClip primaryClip;
+        public bool ImageReplayPending => imageDisplayed && !imageReplayTaken && !imageReplayCancelled;
         public void Configure(string groupId,string word)
         {
             GroupId=groupId;Word=word;
+            imageDisplayed=imageReplayTaken=imageReplayCancelled=primaryStarted=primaryCompleted=false;
+            primaryClip=null;
             if(Source==null) Source=gameObject.AddComponent<AudioSource>();
             Source.playOnAwake=false;Source.loop=false;Source.spatialBlend=1;
             Source.dopplerLevel=0;Source.rolloffMode=AudioRolloffMode.Linear;
@@ -38,9 +43,36 @@ namespace BrailleSoundDemo.PhysicalStory
         }
         public void Attach(AudioClip clip)
         {
-            if(Source==null) return;
+            if(Source==null || Source.clip==clip) return;
             Source.Stop();Source.clip=clip;
+            primaryClip=null;primaryStarted=primaryCompleted=false;
             Debug.Log("[Word box sound] attached word="+Word+" seconds="+(clip!=null?clip.length:0).ToString("F2"));
+        }
+
+        // The image and sound finish independently. The conversation owns playback;
+        // this latch only allows the real, completed primary clip to be replayed once.
+        public void MarkImageDisplayed() { if(!imageReplayCancelled) imageDisplayed=true; }
+        public void MarkPrimaryStarted(AudioClip clip)
+        {
+            if(imageReplayCancelled || clip==null || Source==null || Source.clip!=clip) return;
+            primaryClip=clip;primaryStarted=true;primaryCompleted=false;
+        }
+        public void MarkPrimaryCompleted(AudioClip clip)
+        {
+            if(!imageReplayCancelled && primaryStarted && primaryClip==clip && Source!=null && Source.clip==clip)
+                primaryCompleted=true;
+        }
+        public bool TryTakeImageReplay(out AudioClip clip)
+        {
+            clip=null;
+            if(!ImageReplayPending || !primaryCompleted || Source==null || Source.isPlaying ||
+                primaryClip==null || Source.clip!=primaryClip) return false;
+            imageReplayTaken=true;clip=primaryClip;return true;
+        }
+        public void CancelImageReplay()
+        {
+            imageReplayCancelled=true;
+            if(imageReplayTaken && Source!=null && Source.clip==primaryClip) Source.Stop();
         }
 
         void LateUpdate()
@@ -96,6 +128,6 @@ namespace BrailleSoundDemo.PhysicalStory
             activity=energy=phase=0f;visualPlaying=false;visualChanged=false;
         }
 
-        void OnDisable() { if(Source!=null) Source.Stop();RestoreOutline(); }
+        void OnDisable() { CancelImageReplay();if(Source!=null) Source.Stop();RestoreOutline(); }
     }
 }

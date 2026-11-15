@@ -29,6 +29,8 @@ namespace BrailleSoundDemo.Tests
             Material ownedMaterial=null;
             Material ownedPlaneMaterial=null;
             Mesh ownedPlaneMesh=null;
+            Texture2D ownedImage=null;
+            AudioClip fixtureSound=null;
             try
             {
                 var box=marker.AddComponent<PinchWordBox>();
@@ -142,14 +144,75 @@ namespace BrailleSoundDemo.Tests
                 box.MarkAccepted();
                 check(!box.OutlineVisible && box.CapturePlane.GetComponent<MeshRenderer>().enabled,
                     "Small-marker geometry and width animation cannot revive a hidden outline or hide the plane.");
+                double imageCapturedAt=box.CapturedAt;
+                Vector3 imageAnchor=box.VisualPosition;
+                ownedImage=new Texture2D(4,4,TextureFormat.RGBA32,false);
+                ownedImage.SetPixel(0,0,new Color(1,0,0,0));ownedImage.Apply();
+                byte[] png=ownedImage.EncodeToPNG();
+                check(WordImagePipeline.TryReadPngDimensions(png,out int pngWidth,out int pngHeight) &&
+                    pngWidth==4 && pngHeight==4 && !WordImagePipeline.TryReadPngDimensions(null,out _,out _),
+                    "The download validator accepts PNG dimensions and rejects missing data before texture decoding.");
+                png[16]=1;
+                check(!WordImagePipeline.TryReadPngDimensions(png,out _,out _) &&
+                    WordImagePipeline.IsImagePath("/word-images/0123456789abcdef0123456789abcdef.png") &&
+                    !WordImagePipeline.IsImagePath("https://example.com/image.png") &&
+                    !WordImagePipeline.IsImagePath("/word-images/../../secrets.png"),
+                    "Oversize PNG dimensions and paths outside the local generated-image route are rejected.");
+                check(box.SetWordImage(ownedImage),"An accepted box accepts its generated texture.");
+                ownedPlaneMaterial=box.CapturePlane.GetComponent<MeshRenderer>().sharedMaterial;
+                vertices=ownedPlaneMesh.vertices;rise=vertices[2]-vertices[0];
+                check(Mathf.Abs(Vector3.Distance(vertices[0],vertices[1])-.12f)<.00001f &&
+                    Mathf.Abs(rise.magnitude-.12f)<.00001f && (vertices[0]+vertices[1])*.5f==Vector3.zero &&
+                    Mathf.Abs(Vector3.Angle(rise,Vector3.forward)-65)<.001f &&
+                    ownedPlaneMaterial.shader.name=="BrailleSoundDemo/Word Image Alpha" &&
+                    ownedPlaneMaterial.GetTag("RenderType",false)=="Transparent" &&
+                    ownedPlaneMaterial.mainTexture==ownedImage && ownedImage.GetPixel(0,0).a==0 &&
+                    !box.OutlineVisible && box.CapturedAt==imageCapturedAt && box.VisualPosition==imageAnchor,
+                    "A square alpha image fits twelve by twelve centimeters on the same sixty-five-degree plane without reviving its outline.");
+                var firstImage=ownedImage;
+                var firstImageMaterial=ownedPlaneMaterial;
+                ownedImage=new Texture2D(4,2,TextureFormat.RGBA32,false);
+                check(box.SetWordImage(ownedImage) && box.SetWordImage(ownedImage),
+                    "Repeated display of the same image is harmless.");
+                ownedPlaneMaterial=box.CapturePlane.GetComponent<MeshRenderer>().sharedMaterial;
+                vertices=ownedPlaneMesh.vertices;
+                check(Mathf.Abs(Vector3.Distance(vertices[0],vertices[1])-.20f)<.00001f &&
+                    Mathf.Abs((vertices[2]-vertices[0]).magnitude-.10f)<.00001f &&
+                    firstImage==null && firstImageMaterial==null && marker.GetComponentsInChildren<Collider>().Length==0,
+                    "A wider image fits without stretching, releases replaced assets, and creates no collider.");
+
+                var sound=marker.AddComponent<WordSoundAttachment>();
+                fixtureSound=AudioClip.Create("Existing generated sound fixture",64,1,16000,false);
+                sound.Configure("fixture-image-first","MOON");
+                sound.MarkImageDisplayed();
+                check(!sound.TryTakeImageReplay(out _),"An image arriving first cannot fabricate or play a missing sound.");
+                sound.Attach(fixtureSound);sound.MarkPrimaryStarted(fixtureSound);
+                check(!sound.TryTakeImageReplay(out _),"The image cannot interrupt the original word effect.");
+                sound.MarkPrimaryCompleted(fixtureSound);
+                check(sound.TryTakeImageReplay(out var replay) && replay==fixtureSound && sound.Source.clip==fixtureSound,
+                    "An early image reuses the existing clip once its primary playback completes.");
+                sound.MarkImageDisplayed();sound.MarkPrimaryCompleted(fixtureSound);
+                check(!sound.TryTakeImageReplay(out _),"Repeated image and sound completions cannot replay a second time.");
+                sound.Configure("fixture-sound-first","MOON");sound.Attach(fixtureSound);
+                sound.MarkPrimaryStarted(fixtureSound);sound.MarkPrimaryCompleted(fixtureSound);
+                check(!sound.TryTakeImageReplay(out _),"A completed sound waits until its image was actually displayed.");
+                sound.MarkImageDisplayed();
+                check(sound.TryTakeImageReplay(out replay) && replay==fixtureSound && !sound.TryTakeImageReplay(out _),
+                    "A late image also replays the existing effect exactly once.");
+                sound.Configure("fixture-reset","MOON");sound.Attach(fixtureSound);sound.MarkPrimaryStarted(fixtureSound);
+                sound.CancelImageReplay();sound.MarkPrimaryCompleted(fixtureSound);sound.MarkImageDisplayed();
+                check(!sound.ImageReplayPending && !sound.TryTakeImageReplay(out _) && box.VisualPosition==imageAnchor,
+                    "Reset or tracking cancellation rejects late image/primary completion while keeping the audio anchor fixed.");
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(root);
+                if(fixtureSound!=null) UnityEngine.Object.DestroyImmediate(fixtureSound);
             }
             check(ownedMaterial==null,"Destroying the marker releases its owned outline material in edit mode.");
             check(ownedPlaneMesh==null && ownedPlaneMaterial==null,
                 "Destroying the marker also releases its owned plane mesh and material.");
+            check(ownedImage==null,"Destroying the marker releases the generated texture it owns.");
             report.passed=true;
             Directory.CreateDirectory("Logs");
             File.WriteAllText("Logs/pinch-word-box-verification.json",JsonUtility.ToJson(report,true));

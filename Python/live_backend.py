@@ -30,6 +30,7 @@ import wave
 from workspace_storage import (StorageError, SessionStateStore, RequestArchive, owner_from,
                                owner_from_query, session_directory, read_json, write_json)
 import guided_dialogue
+from comfy_word_images import ComfyCardProvider, WordImageJobs, ImageError
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parent
@@ -81,6 +82,8 @@ class Settings:
     voice: str = "marin"
     elevenlabs_api_key: str = ""
     sound_effect_model: str = "eleven_text_to_sound_v2"
+    comfy_api_key: str = ""
+    comfy_base_url: str = "https://cloud.comfy.org"
 
     def __repr__(self):
         return "Settings(api_key=<redacted>, text_model=%r, transcription_model=%r, speech_model=%r, voice=%r)" % (self.text_model, self.transcription_model, self.speech_model, self.voice)
@@ -89,6 +92,7 @@ class Settings:
     def from_environment(cls):
         load_local_environment(PROJECT / ".env.local")
         load_local_environment(PROJECT / ".env.elevenlabs.local")
+        load_local_environment(PROJECT / ".env.comfy.local")
         return cls(
             api_key=os.environ.get("OPENAI_API_KEY", "").strip(),
             text_model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-5.4-mini").strip(),
@@ -97,6 +101,8 @@ class Settings:
             voice=os.environ.get("OPENAI_VOICE", "marin").strip(),
             elevenlabs_api_key=os.environ.get("ELEVENLABS_API_KEY", "").strip(),
             sound_effect_model=os.environ.get("ELEVENLABS_SOUND_EFFECT_MODEL", "eleven_text_to_sound_v2").strip(),
+            comfy_api_key=(os.environ.get("COMFY_API_KEY") or os.environ.get("COMFY_CLOUD_API_KEY", "")).strip(),
+            comfy_base_url=os.environ.get("COMFY_BASE_URL", "https://cloud.comfy.org").strip().rstrip("/"),
         )
 
 
@@ -578,9 +584,10 @@ class PendingRequest:
 
 class Backend:
     def __init__(self, upstream, audio_directory: Path, prompts: dict, maximum_requests: int = 512, effects=None,
-                 workspace_directory=None):
+                 workspace_directory=None, image_jobs=None):
         self.upstream = upstream
         self.effects = effects
+        self.image_jobs = image_jobs
         self.workspace_directory = Path(workspace_directory) if workspace_directory is not None else Path(audio_directory).parent / "workspaces"
         self.audio = AudioStore(audio_directory, workspace_directory=self.workspace_directory)
         self.session_states = SessionStateStore(self.workspace_directory)
@@ -604,11 +611,27 @@ class Backend:
                 "soundEffectsDurationSeconds": getattr(self.effects, "duration_seconds", 3.0),
                 "workspaceStorageEnabled": True, "workspaceDirectory": str(self.workspace_directory),
                 "sessionStateMaxBytes": MAX_SESSION_STATE_BYTES, "unscopedStorage": "legacy",
-                "guidedDialogueEnabled": True, "storySentenceCount": 7}
+                "guidedDialogueEnabled": True, "storySentenceCount": 7,
+                "wordImages": self.image_jobs.health() if self.image_jobs else {"configured": False}}
 
     def dispatch(self, route: str, body: bytes, content_type: str) -> tuple[int, dict]:
         started_at = time.perf_counter()
         parsed = urlsplit(route)
+        if parsed.path == "/word-image":
+            if content_type.split(";", 1)[0].strip().lower() != "application/json":
+                raise BackendError("content_type", "Word images require application/json.", 415)
+            if len(body) > MAX_JSON_BYTES:
+                raise BackendError("payload_too_large", "Word image request is too large.", 413)
+            if self.image_jobs is None:
+                raise BackendError("image_unavailable", "Word image generation is not configured.", 503)
+            try:
+                value = json.loads(body)
+                if not isinstance(value, dict): raise ValueError()
+                return 200, self.image_jobs.submit(value)
+            except ImageError as error:
+                raise BackendError(error.code, error.message, error.status) from None
+            except (ValueError, TypeError):
+                raise BackendError("invalid_image_request", "Expected a word image JSON object.") from None
         if parsed.path == "/session-state":
             if content_type.split(";", 1)[0].strip().lower() != "application/json":
                 raise BackendError("content_type", "Session snapshots require application/json.", 415)
@@ -818,12 +841,22 @@ def make_server(backend: Backend, port: int = 8766) -> ThreadingHTTPServer:
                 parsed = urlsplit(self.path)
                 if parsed.path == "/health":
                     self.send_json(200, backend.health())
+                elif parsed.path == "/word-image":
+                    if backend.image_jobs is None:
+                        raise BackendError("image_unavailable", "Word images are not configured.", 503)
+                    self.send_json(200, backend.image_jobs.status(parse_qs(parsed.query, keep_blank_values=True)))
+                elif re.fullmatch(r"/word-images/[0-9a-f]{32}\.png", parsed.path):
+                    if backend.image_jobs is None:
+                        raise BackendError("image_unavailable", "Word images are not configured.", 503)
+                    self.send_data(200, backend.image_jobs.read_image(parsed.path), "image/png")
                 elif AUDIO_RE.fullmatch(parsed.path):
                     self.send_data(200, backend.audio.read(parsed.path), "audio/wav")
                 else:
                     raise BackendError("not_found", "Endpoint not found.", 404)
             except BackendError as error:
                 self.error_result(error)
+            except ImageError as error:
+                self.error_result(BackendError(error.code, error.message, error.status))
 
         def do_POST(self):
             try:
@@ -868,20 +901,23 @@ def main():
         for kind in ("question", "story", "dialogue", "guided_story"):
             checked_text(prompts.get(kind), kind + " prompt", 12000)
         effects = ElevenLabsEffects(settings.elevenlabs_api_key, settings.sound_effect_model)
+        workspace_directory = PROJECT / "runtime" / "workspaces"
+        images = WordImageJobs(ComfyCardProvider(settings.comfy_api_key, settings.comfy_base_url), workspace_directory)
         backend = Backend(OpenAIUpstream(settings), HERE / "runtime/audio", prompts, effects=effects,
-                          workspace_directory=PROJECT / "runtime" / "workspaces")
+                          workspace_directory=workspace_directory, image_jobs=images)
         server = make_server(backend, args.port)
-    except (OSError, ValueError, BackendError):
+    except (OSError, ValueError, BackendError, ImageError):
         print("Backend could not start. Check the local prompts, dependencies, and whether the port is available.")
         return 1
     print("Story voice backend: http://127.0.0.1:%d | key configured: %s | AI-generated voice" % (args.port, "yes" if settings.api_key else "no"), flush=True)
-    print("Health checks make no API calls. Restart after changing .env.local or .env.elevenlabs.local. Ctrl+C stops the server.", flush=True)
+    print("Health checks make no API calls. Restart after changing .env.local, .env.elevenlabs.local or .env.comfy.local. Ctrl+C stops the server.", flush=True)
     try:
         server.serve_forever(poll_interval=.25)
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        images.close()
     return 0
 
 

@@ -25,6 +25,7 @@ namespace BrailleSoundDemo.PhysicalStory
         GameObject capturePlane;
         Mesh capturePlaneMesh;
         Material capturePlaneMaterial;
+        Texture2D wordImage;
         bool outlineHidden;
 
         public Vector3 CenterWorld { get; private set; }
@@ -35,6 +36,7 @@ namespace BrailleSoundDemo.PhysicalStory
         public double CapturedAt { get; private set; } = -1;
         public bool OutlineVisible => outline!=null && outline.enabled;
         public Transform CapturePlane => capturePlane!=null ? capturePlane.transform : null;
+        public Texture2D WordImage => wordImage;
 
         /// <summary>
         /// tableCenter is already projected onto the locked tabletop. The marker never follows a hand or head.
@@ -119,6 +121,24 @@ namespace BrailleSoundDemo.PhysicalStory
             if(outlineHidden) outline.enabled=false;
         }
 
+        /// <summary>Transfers ownership on success. Fit the image inside the existing inclined plane, keeping its bottom anchor.</summary>
+        public bool SetWordImage(Texture2D image)
+        {
+            if(image==null || !Accepted || capturePlane==null || capturePlaneMesh==null ||
+                !capturePlane.GetComponent<MeshRenderer>().enabled) return false;
+            if(wordImage==image) return true;
+            var shader=Resources.Load<Shader>("WordImageAlpha");
+            if(shader==null) { Debug.LogWarning("[Word image] Transparent image shader is unavailable.");return false; }
+            var material=new Material(shader) {name="Generated word image",mainTexture=image,color=Color.white};
+            float aspect=(float)image.width/image.height;
+            float width=Mathf.Min(WidthMeters,DepthMeters*aspect);
+            SetCapturePlaneSize(width,width/aspect);
+            capturePlane.GetComponent<MeshRenderer>().sharedMaterial=material;
+            DestroyOwned(capturePlaneMaterial);DestroyOwned(wordImage);
+            capturePlaneMaterial=material;wordImage=image;
+            return true;
+        }
+
         void LateUpdate() => RefreshCaptureVisuals(Time.realtimeSinceStartupAsDouble);
 
         void RequireConfigured()
@@ -132,12 +152,8 @@ namespace BrailleSoundDemo.PhysicalStory
             if(capturePlane!=null) return;
             capturePlane=new GameObject("Captured photo plane");
             capturePlane.transform.SetParent(transform,false);
-            float halfWidth=WidthMeters*.5f;
-            float angle=CapturePlaneInclinationDegrees*Mathf.Deg2Rad;
-            Vector3 rise=new Vector3(0,Mathf.Sin(angle)*DepthMeters,Mathf.Cos(angle)*DepthMeters);
             capturePlaneMesh=new Mesh {name="Captured photo plane mesh"};
-            capturePlaneMesh.vertices=new[] {new Vector3(-halfWidth,0,0),new Vector3(halfWidth,0,0),
-                new Vector3(-halfWidth,0,0)+rise,new Vector3(halfWidth,0,0)+rise};
+            SetCapturePlaneSize(WidthMeters,DepthMeters);
             // The front normal points toward local -Z, with the top edge rising away from the user.
             capturePlaneMesh.triangles=new[] {0,2,1,1,2,3};
             capturePlaneMesh.uv=new[] {new Vector2(0,0),new Vector2(1,0),new Vector2(0,1),new Vector2(1,1)};
@@ -150,11 +166,21 @@ namespace BrailleSoundDemo.PhysicalStory
             renderer.receiveShadows=false;
         }
 
+        void SetCapturePlaneSize(float width,float height)
+        {
+            float halfWidth=width*.5f;
+            float angle=CapturePlaneInclinationDegrees*Mathf.Deg2Rad;
+            Vector3 rise=new Vector3(0,Mathf.Sin(angle)*height,Mathf.Cos(angle)*height);
+            capturePlaneMesh.vertices=new[] {new Vector3(-halfWidth,0,0),new Vector3(halfWidth,0,0),
+                new Vector3(-halfWidth,0,0)+rise,new Vector3(halfWidth,0,0)+rise};
+            capturePlaneMesh.RecalculateBounds();
+        }
+
         void ClearCapturePlane()
         {
             if(capturePlane!=null) {capturePlane.SetActive(false);DestroyOwned(capturePlane);}
-            DestroyOwned(capturePlaneMesh);DestroyOwned(capturePlaneMaterial);
-            capturePlane=null;capturePlaneMesh=null;capturePlaneMaterial=null;
+            DestroyOwned(capturePlaneMesh);DestroyOwned(capturePlaneMaterial);DestroyOwned(wordImage);
+            capturePlane=null;capturePlaneMesh=null;capturePlaneMaterial=null;wordImage=null;
         }
 
         void OnDestroy()

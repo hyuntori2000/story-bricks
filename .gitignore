@@ -42,3 +42,5 @@ Documentation/*.md
 Python/README*.md
 !.env.elevenlabs.example
 !.env.local.example
+
+!.env.comfy.example

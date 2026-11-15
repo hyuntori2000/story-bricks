@@ -53,6 +53,7 @@ namespace BrailleSoundDemo.PhysicalStory
         Coroutine poll;
         UnityWebRequest activePoll;
         PinchWordBox pendingPinchBox;
+        WordImagePipeline wordImages;
         HandApproachSample pendingPinchSample;
         string pendingPinchSession;
         int pendingPinchWordIndex, pendingPinchRevision;
@@ -113,6 +114,7 @@ namespace BrailleSoundDemo.PhysicalStory
         public void ShowExperienceMenu()
         {
             experienceActive=false;
+            wordImages?.CancelAll();
             CancelRecognition(); table?.CancelPinchTarget(); sender?.CancelPending("Choose an experience first");
             if(statusHint!=null) statusHint.gameObject.SetActive(false);
         }
@@ -174,6 +176,8 @@ namespace BrailleSoundDemo.PhysicalStory
             Images=GetComponent<StoryImagePipeline>();
             if(Images == null) Images=gameObject.AddComponent<StoryImagePipeline>();
             Images.EnableImagePreparation=false;
+            wordImages=GetComponent<WordImagePipeline>();
+            if(wordImages==null) wordImages=gameObject.AddComponent<WordImagePipeline>();
             inputFeedback=gameObject.AddComponent<AudioSource>();
             inputFeedback.playOnAwake=false; inputFeedback.spatialBlend=0; inputFeedback.volume=.8f;
             recognitionRetry=Resources.Load<AudioClip>("StoryAudio/recognition_retry");
@@ -371,6 +375,7 @@ namespace BrailleSoundDemo.PhysicalStory
             sound.Configure(anchor.groupId,anchor.word);
             anchor.componentIds=(string[])geometry.ComponentIds.Clone();
             anchors.Add(anchor); anchorsById.Add(anchor.groupId,anchor);
+            BeginWordImage(anchor,sound);
             lastAcceptedGroupId=anchor.groupId;
             SessionStore?.RecordWord(anchor.groupId,anchor.word,anchor.index,anchor.frameId);
             WordMediaPresenter.Attach(mediaPresenterPrefab,anchor.anchor,workspaceCaptureSession,
@@ -552,8 +557,23 @@ namespace BrailleSoundDemo.PhysicalStory
 
         AudioSource ResolveWordAudioSource(string groupId)
         {
-            return anchorsById.TryGetValue(groupId,out var word) && word.anchor!=null
+            return anchorsById.TryGetValue(groupId,out var word) && word.anchor!=null && word.spatialValid
                 ? word.anchor.GetComponent<WordSoundAttachment>()?.Source : null;
+        }
+
+        void BeginWordImage(PhysicalWordAnchor anchor,WordSoundAttachment sound)
+        {
+            if(!liveConversation || workspaceId!="demo" || !experienceActive || Flow?.IsLive!=true ||
+                Flow.Record==null || wordImages==null || !PhysicalWordInputPolicy.IsRecognizedWord(anchor.word)) return;
+            string imageWorkspace=workspaceId,imageExperience=workspaceCaptureSession,imageSession=Flow.Record.sessionId;
+            int referenceRevision=table.ReferenceRevision;
+            wordImages.Begin(imageWorkspace,imageExperience,imageSession,anchor.groupId,anchor.word,
+                anchor.anchor.GetComponent<PinchWordBox>(),sound,
+                ()=>initialized && isActiveAndEnabled && !resetting && experienceActive && liveConversation &&
+                    workspaceId==imageWorkspace && workspaceCaptureSession==imageExperience && Flow?.Record?.sessionId==imageSession &&
+                    table!=null && table.ReferenceRevision==referenceRevision && anchor.spatialValid && anchor.anchor!=null &&
+                    anchorsById.TryGetValue(anchor.groupId,out var current) && ReferenceEquals(current,anchor),
+                attachment=>Flow.RequestWordImageReplay(attachment));
         }
 
         void OnWordSoundPrepared(string groupId,AudioClip clip)
@@ -564,6 +584,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         void OnWordRecaptureRequested(string groupId)
         {
+            wordImages?.Cancel(groupId);
             // A dialogue failure must not cancel an unrelated capture or erase
             // other accepted words waiting in this workspace's queue.
             conversationQueue.RemoveAll(word=>word.groupId==groupId);
@@ -601,6 +622,7 @@ namespace BrailleSoundDemo.PhysicalStory
         {
             if(!initialized) return;
             // Tracking invalidates positions and in-flight captures, not the child's saved story.
+            wordImages?.CancelAll();
             CancelRecognition(); table?.CancelPinchTarget(); sender?.CancelPending(reason); ClearPendingPinchBox();
             foreach(var word in anchors)
             {
@@ -610,6 +632,7 @@ namespace BrailleSoundDemo.PhysicalStory
                 foreach(var presenter in word.anchor.GetComponentsInChildren<WordMediaPresenter>())
                 { presenter.CancelPlayback(); presenter.PresentationEnabled=false; }
                 var source=word.anchor.GetComponent<WordSoundAttachment>()?.Source;
+                word.anchor.GetComponent<WordSoundAttachment>()?.CancelImageReplay();
                 if(source!=null) { source.Stop(); source.spatialBlend=0; source.spatialize=false; }
             }
             if(experienceActive) SetStatus("Tracking changed. Saved words and answers are kept; reacquire the table for new captures.");
@@ -668,6 +691,7 @@ namespace BrailleSoundDemo.PhysicalStory
             try
             {
                 SessionStore?.End(reason);
+                wordImages?.CancelAll();
                 CancelRecognition();
                 if(inputFeedback != null) inputFeedback.Stop();
                 table?.CancelPinchTarget();
@@ -702,6 +726,7 @@ namespace BrailleSoundDemo.PhysicalStory
             {
                 // API conversation sessions may advance independently of
                 // captured anchors and words queued for the following story.
+                wordImages?.CancelAll();
                 observedStorySession=Flow.Record.sessionId;
                 Images?.ResetSession(observedStorySession);
             }
@@ -785,6 +810,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         void OnDestroy()
         {
+            wordImages?.CancelAll();
             CancelRecognition();
             if(table != null)
             {

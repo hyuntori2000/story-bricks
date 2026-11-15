@@ -13,6 +13,7 @@ namespace BrailleSoundDemo
         readonly HashSet<string> guidedSoundWords = new HashSet<string>(StringComparer.Ordinal);
         readonly HashSet<AudioSource> guidedEffectSources = new HashSet<AudioSource>();
         readonly HashSet<AudioSource> guidedPausedEffectSources = new HashSet<AudioSource>();
+        readonly HashSet<PhysicalStory.WordSoundAttachment> guidedImageReplays = new HashSet<PhysicalStory.WordSoundAttachment>();
         int guidedEffectGeneration;
 
         public bool GuidedDialogueEnabled => guidedEnabled && PhysicalWordsEnabled;
@@ -222,12 +223,59 @@ namespace BrailleSoundDemo
             if (source == null) { Log("[Word sound] No box source for " + word.word + "."); yield break; }
             guidedEffectSources.Add(source);
             source.clip = clip; source.volume = .8f * .7f * Palette.WordGainMultiplier;
+            var attachment = source.GetComponent<PhysicalStory.WordSoundAttachment>();
+            attachment?.MarkPrimaryStarted(clip);
             if (!TestFastMode) source.Play();
             Log("[Word sound] Playing " + word.word + " at 70% of the previous gain.");
             while (ValidGuidedEffect(token) && source != null && source.clip == clip &&
                 (source.isPlaying || guidedPausedEffectSources.Contains(source))) yield return null;
+            bool completed = ValidGuidedEffect(token) && source != null && source.clip == clip;
             if (source != null && source.clip == clip) source.Stop();
             guidedEffectSources.Remove(source); guidedPausedEffectSources.Remove(source);
+            if (completed) attachment?.MarkPrimaryCompleted(clip);
+            else attachment?.CancelImageReplay();
+        }
+
+        /// <summary>Replay the existing box effect once its image and original playback are both complete.</summary>
+        public void RequestWordImageReplay(PhysicalStory.WordSoundAttachment attachment)
+        {
+            if (attachment == null || !attachment.ImageReplayPending || !GuidedDialogueEnabled ||
+                !IsLive || Palette == null || !guidedImageReplays.Add(attachment)) return;
+            Palette.StartCoroutine(ReplayWordImageEffect(attachment, guidedEffectGeneration));
+        }
+
+        IEnumerator ReplayWordImageEffect(PhysicalStory.WordSoundAttachment attachment, int token)
+        {
+            AudioSource source = null;
+            AudioClip clip = null;
+            try
+            {
+                while (ValidGuidedEffect(token) && attachment != null && attachment.isActiveAndEnabled && attachment.ImageReplayPending)
+                {
+                    // These are tracking/lifecycle gates only. Speech and story state never gate word effects.
+                    if (!applicationPaused && SpatialReady && attachment.TryTakeImageReplay(out clip)) break;
+                    yield return null;
+                }
+                if (!ValidGuidedEffect(token) || attachment == null || clip == null) yield break;
+                source = attachment.Source;
+                if (source == null || source.clip != clip) yield break;
+                guidedEffectSources.Add(source);
+                source.volume = .8f * .7f * Palette.WordGainMultiplier;
+                if (!TestFastMode) source.Play();
+                Log("[Word sound] Image displayed; replaying the existing effect for " + attachment.Word + ".");
+                while (ValidGuidedEffect(token) && attachment != null && attachment.isActiveAndEnabled &&
+                    source != null && source.clip == clip &&
+                    (source.isPlaying || guidedPausedEffectSources.Contains(source))) yield return null;
+            }
+            finally
+            {
+                if (token == guidedEffectGeneration)
+                {
+                    if (source != null && source.clip == clip) source.Stop();
+                    if (source != null) { guidedEffectSources.Remove(source); guidedPausedEffectSources.Remove(source); }
+                    guidedImageReplays.Remove(attachment);
+                }
+            }
         }
         void RefreshGuidedEffectPlayback()
         {
@@ -244,6 +292,8 @@ namespace BrailleSoundDemo
         void StopGuidedEffectPlayback()
         {
             ++guidedEffectGeneration;
+            foreach (var attachment in guidedImageReplays) if (attachment != null) attachment.CancelImageReplay();
+            guidedImageReplays.Clear();
             foreach (var source in guidedEffectSources) if (source != null) source.Stop();
             guidedEffectSources.Clear(); guidedPausedEffectSources.Clear();
         }

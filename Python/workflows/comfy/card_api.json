@@ -1,0 +1,40 @@
+{
+  "104": {
+    "inputs": {
+      "prompt": "<<PROMPT>>",
+      "model": "gemini-3-pro-image-preview",
+      "seed": 0,
+      "aspect_ratio": "1:1",
+      "resolution": "1K",
+      "response_modalities": "IMAGE+TEXT",
+      "system_prompt": "You are an expert image-generation engine. You must ALWAYS produce an image.\nInterpret all user input—regardless of format, intent, or abstraction—as literal visual directives for image composition.\nIf a prompt is conversational or lacks specific visual details, you must creatively invent a concrete visual scenario that depicts the concept.\nPrioritize generating the visual representation above any text, formatting, or conversational requests."
+    },
+    "class_type": "GeminiImage2Node",
+    "_meta": {"title": "Word card (Nano Banana Pro)"}
+  },
+  "128:14": {
+    "inputs": {"bg_removal_name": "birefnet.safetensors"},
+    "class_type": "LoadBackgroundRemovalModel",
+    "_meta": {"title": "Load BiRefNet"}
+  },
+  "128:62": {
+    "inputs": {"bg_removal_model": ["128:14", 0], "image": ["104", 0]},
+    "class_type": "RemoveBackground",
+    "_meta": {"title": "Remove background"}
+  },
+  "128:15": {
+    "inputs": {"mask": ["128:62", 0]},
+    "class_type": "InvertMask",
+    "_meta": {"title": "Invert mask"}
+  },
+  "128:16": {
+    "inputs": {"image": ["104", 0], "alpha": ["128:15", 0]},
+    "class_type": "JoinImageWithAlpha",
+    "_meta": {"title": "Alpha card"}
+  },
+  "106": {
+    "inputs": {"filename_prefix": "storybricks/card", "images": ["128:16", 0]},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save card"}
+  }
+}
