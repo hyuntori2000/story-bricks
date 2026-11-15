@@ -1,6 +1,26 @@
-# Words to Worlds — shared functions
+# Story Bricks
 
 This repository combines the supplied Story Bricks watercolour UX with the working capture/recognition core. **Judy** plays the supplied 61.5-second Unity cutout animation, narration and sound track. **Create Your World** uses live word-building, conversation and generated animation. Designers own presentation assets; the shared core remains protected.
+
+## Current demo checkpoint — November 15, 2026
+
+The current implementation is on **`dev/demo-flow-story-library`**. `main` remains the shared baseline and has not received these development changes. Clone the current demo directly:
+
+```sh
+git clone --branch dev/demo-flow-story-library https://github.com/hyuntori2000/story-bricks.git
+git -C story-bricks lfs install
+git -C story-bricks lfs pull
+```
+
+The checkpoint tag **`story-bricks-demo-2026-11-15`** preserves this source version. Check out that tag in a clean checkout to inspect or rebuild it; create a new development branch before editing.
+
+- The latest Quest APK built and installed successfully. The focused single-pinch input verification passed; a real Quest log confirmed **Create Story** selection and story generation. Home still needs direct device confirmation.
+- Recognition uses parallel OCR and braille with a bounded English OCR retry. These changes are experimental; the capture samples are not a general recognition-accuracy benchmark.
+- **Known image-display limitation:** a tracking-origin reset cancels pending Unity image delivery and hides old spatial anchors. The Mac can finish and archive the image, but the app does not automatically restore it. This explains the latest FOX image missing in VR even though generation succeeded. This checkpoint records the issue; it does not fix it.
+- Comfy images, two-scene story videos, speech and effects require the existing local backend configuration. External generation time and output quality vary. Review generated dialogue and story text before filming; the latest saved story included a stray non-English/self-correction fragment.
+- Secrets, captures, generated media, local environments and APKs are not part of this source checkpoint. Configure your own ignored local environment files using the setup below.
+
+Resolve or explicitly accept these demo limitations before merging into `main`.
 
 | Folder | Owner / purpose |
 | --- | --- |
