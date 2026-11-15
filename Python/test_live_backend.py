@@ -110,6 +110,104 @@ class BackendTests(unittest.TestCase):
         with wave.open(io.BytesIO(self.backend.audio.read(result["audioPath"]))) as wav:
             self.assertEqual((wav.getnchannels(), wav.getsampwidth(), wav.getframerate()), (1, 2, 24000))
 
+    def test_manual_story_accepts_one_word_without_an_answer(self):
+        value = context(1, 0)
+        value["completionMode"] = "manual_saved_progress"
+        value["words"][-1]["finishMarker"] = True
+        original = copy.deepcopy(value)
+        status, result = self.backend.dispatch("/story", envelope(value), "application/json")
+        self.assertEqual(status, 200)
+        self.assertTrue(result["audioPath"].startswith("/audio/"))
+        self.assertEqual(self.upstream.calls[0], ("story", original))
+        self.assertEqual(self.upstream.calls[0][1]["turns"], [])
+        self.assertEqual(value, original)
+
+    def test_manual_story_accepts_only_actual_saved_answer_prefix(self):
+        for saved_count in range(4):
+            with self.subTest(saved_count=saved_count):
+                value = context(3, saved_count)
+                value["completionMode"] = "manual_saved_progress"
+                if saved_count:
+                    value["turns"][0]["answer"] = "  I want to ride a submarine!  "
+                original = copy.deepcopy(value)
+                status, _ = self.backend.dispatch("/story", envelope(value, "manual-" + str(saved_count)), "application/json")
+                self.assertEqual(status, 200)
+                self.assertEqual(self.upstream.calls[-2], ("story", original))
+                self.assertEqual(len(self.upstream.calls[-2][1]["turns"]), saved_count)
+                self.assertEqual(value, original)
+
+    def test_manual_story_still_requires_words_and_final_finish_marker(self):
+        value = context(1, 0)
+        value["completionMode"] = "manual_saved_progress"
+        with self.assertRaises(lb.BackendError) as raised:
+            self.backend.dispatch("/story", envelope(value), "application/json")
+        self.assertEqual(raised.exception.code, "finish_required")
+        value["words"] = []
+        with self.assertRaises(lb.BackendError) as raised:
+            self.backend.dispatch("/story", envelope(value), "application/json")
+        self.assertEqual(raised.exception.code, "invalid_context")
+        self.assertEqual(self.upstream.calls, [])
+
+    def test_manual_story_rejects_reordered_or_mismatched_saved_identity(self):
+        mutations = {
+            "turn order": lambda value: value["turns"].reverse(),
+            "turn index": lambda value: value["turns"][0].update(wordIndex=1),
+            "turn word": lambda value: value["turns"][0].update(word="FOX"),
+            "turn group": lambda value: value["turns"][0].update(groupId="other-group"),
+            "turn components": lambda value: value["turns"][0].update(componentIds=["other-letter"]),
+            "word order": lambda value: value["words"].reverse(),
+            "current word": lambda value: value.update(currentWord="CAT"),
+            "duplicate component": lambda value: value["words"][0].update(componentIds=["letter", "letter"]),
+            "unsaved answer": lambda value: value["turns"][0].update(answer=""),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                value = context(3, 2)
+                value["completionMode"] = "manual_saved_progress"
+                mutate(value)
+                with self.assertRaises(lb.BackendError) as raised:
+                    self.backend.dispatch("/story", envelope(value), "application/json")
+                self.assertEqual(raised.exception.code, "invalid_context")
+        value = context(3, 3)
+        value["completionMode"] = "manual_saved_progress"
+        value["turns"].append(copy.deepcopy(value["turns"][-1]))
+        with self.assertRaises(lb.BackendError) as raised:
+            self.backend.dispatch("/story", envelope(value), "application/json")
+        self.assertEqual(raised.exception.code, "answer_order")
+        self.assertEqual(self.upstream.calls, [])
+
+    def test_manual_completion_is_rejected_for_questions(self):
+        value = context(3, 2)
+        value["completionMode"] = "manual_saved_progress"
+        with self.assertRaises(lb.BackendError) as raised:
+            self.backend.dispatch("/question", envelope(value), "application/json")
+        self.assertEqual(raised.exception.code, "invalid_completion_mode")
+        self.assertEqual(self.upstream.calls, [])
+
+    def test_unknown_completion_mode_is_rejected(self):
+        for mode in ("manual", "automatic", "MANUAL_SAVED_PROGRESS", " ", True, 1, [], {}):
+            with self.subTest(mode=mode):
+                value = context(3, 3)
+                value["completionMode"] = mode
+                with self.assertRaises(lb.BackendError) as raised:
+                    self.backend.dispatch("/story", envelope(value), "application/json")
+                self.assertEqual(raised.exception.code, "invalid_completion_mode")
+        self.assertEqual(self.upstream.calls, [])
+
+    def test_empty_or_null_completion_mode_keeps_normal_answer_contract(self):
+        for mode in (None, ""):
+            with self.subTest(mode=mode):
+                value = context(3, 2)
+                value["completionMode"] = mode
+                with self.assertRaises(lb.BackendError) as raised:
+                    self.backend.dispatch("/story", envelope(value), "application/json")
+                self.assertEqual(raised.exception.code, "answer_order")
+                self.assertIs(lb.validate_context(value, "question"), value)
+                self.assertNotIn("completionMode", lb.narrative_context(value))
+                value["turns"] = context(3, 3)["turns"]
+                self.assertIs(lb.validate_context(value, "story"), value)
+        self.assertEqual(self.upstream.calls, [])
+
     def test_question_uses_prior_context_and_preserves_ids(self):
         status, result = self.backend.dispatch("/question", envelope(context(3, 2)), "application/json")
         self.assertEqual(status, 200)
@@ -139,11 +237,30 @@ class BackendTests(unittest.TestCase):
         self.assertEqual([w["finishMarker"] for w in projected["words"]], [False, False, True])
         self.assertEqual([t["answer"] for t in projected["turns"]], answers)
         self.assertEqual(projected["turns"][0]["question"], value["turns"][0]["question"])
+        self.assertNotIn("completionMode", projected)
         self.assertTrue(all(set(w) == {"index", "word", "finishMarker"} for w in projected["words"]))
         self.assertTrue(all(set(t) == {"wordIndex", "word", "question", "answer"} for t in projected["turns"]))
         self.assertEqual(request["reasoning"], {"effort": "low"})
         self.assertEqual(request["max_output_tokens"], 4000)
         self.assertFalse(request["store"])
+
+    def test_manual_text_payload_includes_mode_and_only_saved_story_material(self):
+        value = context(3, 1)
+        value["completionMode"] = "manual_saved_progress"
+        value["turns"][0]["answer"] = "  Rocket ships can dance.  "
+        original = copy.deepcopy(value)
+        lb.validate_context(value, "story")
+        upstream = lb.OpenAIUpstream(lb.Settings("not-a-real-key"))
+        response = {"status": "completed", "output": [{"type": "message", "content": [
+            {"type": "output_text", "text": "Rocket ships danced in the rain."}]}]}
+        with patch.object(upstream, "_http", return_value=json.dumps(response).encode()) as http:
+            upstream.generate_text("story", "story prompt", value)
+        projected = json.loads(json.loads(http.call_args.args[1])["input"])
+        self.assertEqual(projected["completionMode"], "manual_saved_progress")
+        self.assertEqual([word["word"] for word in projected["words"]], ["CAT", "RAIN", "SLEEP"])
+        self.assertEqual(projected["turns"], [{"wordIndex": 0, "word": "CAT", "question": "What happens?",
+                                               "answer": "  Rocket ships can dance.  "}])
+        self.assertEqual(value, original)
 
     def test_arbitrary_first_words_keep_spelling_order_and_empty_prior_turns(self):
         upstream = lb.OpenAIUpstream(lb.Settings("not-a-real-key"))

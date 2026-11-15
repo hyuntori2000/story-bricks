@@ -115,6 +115,7 @@ namespace BrailleSoundDemo.Editor
                 Tests.CaptureValidityVerification.Run();
                 Tests.SoundPaletteVerification.Run();
                 Tests.TeamWorkspaceVerification.Run();
+                Tests.ManualFinishVerification.Run();
                 PlayerSettings.productName = "Words to Worlds";
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android, PackageId);
                 AssetDatabase.SaveAssets();

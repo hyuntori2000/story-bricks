@@ -20,6 +20,10 @@ namespace BrailleSoundDemo.Presentation
         public void PlayCue(string cueKey)=>Core?.EmitPresentationEvent("manual",null,cueKey);
         public void EmitEvent(string eventName)=>Core?.EmitPresentationEvent(eventName);
         public void StartNextStory()=>Core?.StartNextConversation();
+        public void StartSession()=>Core?.StartSession();
+        public void OpenFinishMenu()=>Core?.GetComponent<SessionFinishMenu>()?.Open();
+        public void CreateStory()=>Core?.CreateStoryFromSavedProgress();
+        public void EndSession()=>Core?.EndSessionToStart();
         public void ResetSession()=>Core?.ResetPhysicalSession("Reset requested by the presentation UI");
     }
 }

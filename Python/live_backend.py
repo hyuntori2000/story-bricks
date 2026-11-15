@@ -34,6 +34,7 @@ MAX_JSON_BYTES = 64 * 1024
 MAX_INPUT_WAV_BYTES = 6 * 1024 * 1024
 MAX_AUDIO_BYTES = 24000 * 2 * 120
 MAX_OUTPUT_TEXT = 4000
+MANUAL_COMPLETION_MODE = "manual_saved_progress"
 ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
 AUDIO_RE = re.compile(r"^/audio/([0-9a-f]{32})\.wav$")
 
@@ -205,13 +206,16 @@ def narrative_context(context: dict) -> dict:
     Preserve order and every question/answer string verbatim. Geometry and transport
     identifiers are unnecessary for plot generation and remain in the original context.
     """
-    return {
+    projected = {
         "currentWord": context["currentWord"],
         "words": [{"index": word["index"], "word": word["word"],
                    "finishMarker": word.get("finishMarker", False)} for word in context["words"]],
         "turns": [{"wordIndex": turn["wordIndex"], "word": turn["word"],
                    "question": turn["question"], "answer": turn["answer"]} for turn in context["turns"]],
     }
+    if context.get("completionMode") == MANUAL_COMPLETION_MODE:
+        projected["completionMode"] = MANUAL_COMPLETION_MODE
+    return projected
 
 
 class OpenAIUpstream:
@@ -397,9 +401,17 @@ def checked_text(value, label: str, maximum: int = 4000) -> str:
 def validate_context(context, operation: str) -> dict:
     if not isinstance(context, dict):
         raise BackendError("invalid_context", "A structured conversation context is required.")
+    completion_mode = context.get("completionMode")
+    # Unity JsonUtility can emit an unset string field as null or an empty string.
+    # Only the explicit manual value relaxes the normal saved-answer requirement.
+    if completion_mode not in (None, "", MANUAL_COMPLETION_MODE):
+        raise BackendError("invalid_completion_mode", "The conversation completion mode is not supported.")
+    manual_finish = completion_mode == MANUAL_COMPLETION_MODE
+    if manual_finish and operation != "story":
+        raise BackendError("invalid_completion_mode", "Manual completion is available only for story generation.")
     words, turns = context.get("words"), context.get("turns")
     if not isinstance(words, list) or not words or not isinstance(turns, list):
-        raise BackendError("invalid_context", "Provide ordered words and their saved turns; a recognized period ends the story.")
+        raise BackendError("invalid_context", "Provide at least one ordered word and its saved turns.")
     current = checked_text(context.get("currentWord"), "currentWord", 32)
     for index, word in enumerate(words):
         if not isinstance(word, dict) or word.get("index") != index:
@@ -414,7 +426,9 @@ def validate_context(context, operation: str) -> dict:
     if current != words[-1]["word"]:
         raise BackendError("invalid_context", "currentWord must match the final completed word.")
     required_turns = len(words) - 1 if operation == "question" else len(words)
-    if len(turns) != required_turns:
+    if manual_finish and len(turns) > len(words):
+        raise BackendError("answer_order", "Manual stories may use only the saved answer prefix for the ordered words.")
+    if not manual_finish and len(turns) != required_turns:
         raise BackendError("answer_order", "Questions need previous answers; stories need one saved answer for every word.")
     for index, turn in enumerate(turns):
         word = words[index]
@@ -423,7 +437,7 @@ def validate_context(context, operation: str) -> dict:
         checked_text(turn.get("question"), "question", 1000)
         checked_text(turn.get("answer"), "answer")
     if operation == "story" and words[-1].get("finishMarker") is not True:
-        raise BackendError("finish_required", "The story requires the final word's finish marker and saved answer.")
+        raise BackendError("finish_required", "The story requires the final word's finish marker.")
     return context
 
 

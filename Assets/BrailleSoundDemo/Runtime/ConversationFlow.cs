@@ -37,6 +37,7 @@ namespace BrailleSoundDemo
     [Serializable] public sealed class StoryContext
     {
         public string currentWord;
+        public string completionMode;
         public List<WordRecord> words = new List<WordRecord>();
         public List<ConversationTurn> turns = new List<ConversationTurn>();
     }
@@ -153,6 +154,7 @@ namespace BrailleSoundDemo
         public bool PhysicalWordsEnabled { get; private set; }
         public int StoryWordLimit => PhysicalWordsEnabled ? int.MaxValue : 3;
         public int ExpectedWordIndex => Record?.words.Count ?? 0;
+        public bool StoryFinishRequested => storyRequested;
         /// <summary>Optional generic spatial confirmation for unmapped physical words; never presented as a semantic or SATIE sound.</summary>
         public bool UseNeutralCueForUnknownPhysicalWords { get; set; }
         public bool IsRecording => microphone != null && microphone.IsRecording;
@@ -208,6 +210,7 @@ namespace BrailleSoundDemo
         StoryOutput lastStoryOutput;
         bool storyRequested;
         bool physicalFinishRequested;
+        bool manualStoryFinish;
         bool spatialTrackingReady = true;
         bool wordPlaybackActive, wordPlaybackStarted, wordPlaybackPaused;
         sealed class BackgroundJob
@@ -276,7 +279,7 @@ namespace BrailleSoundDemo
             ResetSession();
         }
         /// <summary>
-        /// Enables four accepted physical words instead of the three CAT/RAIN/SLEEP fixtures.
+        /// Enables accepted physical words instead of the three CAT/RAIN/SLEEP fixtures.
         /// Physical stories finish when a period is recognized, rather than at a fixed word count.
         /// Changing input policy starts a new session, while ordinary resets preserve the policy.
         /// </summary>
@@ -384,6 +387,64 @@ namespace BrailleSoundDemo
             finalWord.finishMarker = true;
             if (!Save()) return false;
             StartCoroutine(StorySequence(finalWord.word, generation));
+            return true;
+        }
+        /// <summary>Finish immediately with captured words and only answers already saved. No unfinished answer is invented.</summary>
+        public bool CreateStoryFromSavedProgress(IReadOnlyList<WordRecord> additionalWords = null, bool useLiveProvider = true)
+        {
+            if (!PhysicalWordsEnabled || Record == null || storyRequested || State == ConversationState.RequestingStory ||
+                State == ConversationState.Story || State == ConversationState.Finished) return false;
+            var combined = new List<WordRecord>();
+            var groups = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var word in Record.words) { combined.Add(CopyWord(word)); groups.Add(word.groupId); }
+            if (additionalWords != null)
+                foreach (var word in additionalWords)
+                {
+                    if (word == null || PhysicalWordInputPolicy.IsStoryFinishMarker(word.word)) continue;
+                    if (groups.Add(word.groupId)) combined.Add(CopyWord(word));
+                }
+            if (combined.Count == 0) return false;
+            for (int i = 0; i < combined.Count; i++)
+            {
+                var word = combined[i];
+                if (!PhysicalWordInputPolicy.IsRecognizedWord(word.word) || !PhysicalIdentifier(word.groupId) ||
+                    !Finite(word.worldPosition) || word.componentIds.Length != word.word.Length) return false;
+                var ids = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var id in word.componentIds) if (!PhysicalIdentifier(id) || !ids.Add(id)) return false;
+                word.index = i;
+                word.finishMarker = i == combined.Count - 1;
+            }
+
+            generation++; CancelJobMetrics(); StopAllCoroutines();
+            wordSource.Stop(); voiceSource.Stop();
+            if (activeSpatialSource != null) activeSpatialSource.Stop();
+            Palette?.CancelPending(); Palette?.StopAllPlayback();
+            microphone?.Cancel(); CancelProviderWork(false); liveAnswerPending = false;
+            ClearWordPlayback(); backgroundJobs.Clear();
+            pendingQuestion = ""; CurrentPrompt = "";
+            if (useLiveProvider && !IsLive)
+            {
+                // ConfigureLive resets the record; manual finish must retain it.
+                CancelProviderWork(true);
+                liveProvider = new LiveStoryProvider(() => Record?.sessionId) {
+                    GenerationAttemptStarted = OnGenerationAttemptStarted
+                };
+                provider = liveProvider; IsLive = true; Record.fullyMocked = false;
+                SessionPath = Path.Combine(Application.persistentDataPath, "LiveSessions", Record.sessionId + ".json");
+            }
+            Record.words = combined;
+            activeIndex = combined.Count - 1;
+            EnsureRoundStorage(activeIndex);
+            var finalWord = combined[activeIndex];
+            ActiveGroupId = finalWord.groupId; ActiveWord = finalWord.word;
+            wordSource.transform.position = finalWord.worldPosition;
+            manualStoryFinish = true; physicalFinishRequested = true;
+            if (!Save()) return false;
+            // A failed manual request can be retried with the same saved progress.
+            int token = generation;
+            SetState(ConversationState.RequestingStory, "Creating a story from your saved progress.");
+            if (!Valid(token)) return false;
+            StartCoroutine(StorySequence(finalWord.word, token));
             return true;
         }
         /// <summary>Only the active group's tracker can move the active spatial source. Call with each accepted pose.</summary>
@@ -927,7 +988,8 @@ namespace BrailleSoundDemo
         }
         StoryContext CaptureContext(string current)
         {
-            var context = new StoryContext { currentWord = current };
+            var context = new StoryContext { currentWord = current,
+                completionMode = manualStoryFinish ? "manual_saved_progress" : "" };
             foreach (var w in Record.words)
                 context.words.Add(CopyWord(w));
             foreach (var t in Record.turns)
@@ -1002,6 +1064,16 @@ namespace BrailleSoundDemo
         }
         void RecoverRequestFailure(int index, string operation, StoryReply reply, string error)
         {
+            if (operation == "story" && manualStoryFinish)
+            {
+                Record.failures.Add(new ConversationFailureRecord { operation = operation, error = error,
+                    errorCode = reply?.errorCode ?? "provider_failure", generationAttempts = reply?.generationAttempts ?? 0,
+                    failedAt = UtcNow(), recaptureRequested = false });
+                storyRequested = false;
+                Fail("Story creation failed. Open Finish to try again or end the session.");
+                Save();
+                return;
+            }
             bool finalRound = operation == "story";
             bool recoverableRound = PhysicalWordsEnabled && Record != null && index >= 0 &&
                 index == Record.words.Count - 1 && index == activeIndex &&
@@ -1053,7 +1125,7 @@ namespace BrailleSoundDemo
             Array.Clear(liveWordSoundJobs, 0, liveWordSoundJobs.Length);
             Array.Clear(preparedLiveWordClips, 0, preparedLiveWordClips.Length);
             activeIndex = -1; ActiveGroupId = ""; ActiveWord = ""; pendingQuestion = ""; CurrentPrompt = ""; logs.Clear();
-            storyRequested = false; physicalFinishRequested = false; lastStoryOutput = null; StoryOutputPath = "";
+            storyRequested = false; physicalFinishRequested = false; manualStoryFinish = false; lastStoryOutput = null; StoryOutputPath = "";
             Record = new ConversationRecord { sessionId = Guid.NewGuid().ToString("N"), startedAt = UtcNow(), fullyMocked = !IsLive };
             SessionPath = Path.Combine(Application.persistentDataPath, IsLive ? "LiveSessions" : "MockSessions", Record.sessionId + ".json");
             SetState(ConversationState.Ready, "Complete the first word.");
@@ -1089,6 +1161,7 @@ namespace BrailleSoundDemo
         void SetState(ConversationState state, string status) { State = state; Status = status; Changed?.Invoke(); }
         void Fail(string message)
         {
+            if (manualStoryFinish) storyRequested = false;
             generation++; CancelJobMetrics(); StopAllCoroutines();
             wordSource.Stop(); voiceSource.Stop();
             if (activeSpatialSource != null) activeSpatialSource.Stop();

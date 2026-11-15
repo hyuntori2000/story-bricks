@@ -11,11 +11,17 @@ Add `BrailleSoundDemo.Presentation.StoryFunctionBridge` to an object in your own
 | `PlayCue(string cueKey)` | Play a named authored cue group. |
 | `EmitEvent(string eventName)` | Trigger one presentation event manually. |
 | `StartNextStory()` | Start the next conversation after completion/error, preserving other word boxes. |
+| `StartSession()` | Leave the initial Start Story screen and enable capture. |
+| `OpenFinishMenu()` | Show the shared English Create Story / End Session / Cancel confirmation. |
+| `CreateStory()` | Immediately call the real story API with accepted words and saved answers, including in prepared mode. Requires at least one word. |
+| `EndSession()` | Cancel the active session and return to Start Story. Archived captures remain on disk. |
 | `ResetSession()` | Explicitly clear the current session, pending words and media. |
 
 Changing modes starts a new session. Capture remains the existing same-hand double pinch followed by a three-second wait. Words can be created while another word's dialogue is playing; the live conversation consumes accepted words from a queue. An active capture/recognition request, missing permissions or invalid tracking still prevents another simultaneous capture.
 
 There is no automatic ending after three or four words. A standalone `.` is a queue delimiter, not a question/sound word. A trailing period such as `TREE.` also finishes after that word's answer. A period before any answered word cannot generate an empty story. Prepared-story mode keeps authored cue control.
+
+The baseline scene includes a small **Finish** button with **Create Story / End Session / Cancel**, selectable by hand ray/pinch or controller ray/trigger. Create Story cancels unfinished dialogue and sends `completionMode: "manual_saved_progress"` with captured words and the saved answer prefix. Missing answers are not fabricated. This explicit action calls the real backend even in prepared mode; normal prepared cues remain local. End Session resets capture, conversation, audio and presentation and returns to the initial screen. The menu suppresses capture gestures through pointer release. Designer buttons can call the same shared functions above.
 
 ## Attach media to a box
 

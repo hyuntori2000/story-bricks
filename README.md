@@ -20,6 +20,8 @@ Attach **StoryFunctionBridge** to your UI and bind its public methods to your ow
 
 Both live and prepared modes use the shared double-pinch capture, three-second wait and cropped-image recognition. Word boxes can be created during conversation/playback. Live stories continue until a **recognized period**: a standalone `.` ends the preceding word queue without adding a question, and a word ending in `.` ends after that word's answer. Earlier queued questions and answers finish before story generation. There is no three/four-word automatic ending; later captures remain available for the next story. Prepared mode does not automatically call the conversation API.
 
+Select **Start Story** on launch. The small **Finish** button is available during a session, including while capturing, asking, recording or generating. Its English dialog offers **Create Story**, **End Session** and **Cancel**. Create Story immediately calls the real story backend using accepted words (including the conversation queue) and only answers already saved; unfinished speech is discarded. At least one accepted word is required. End Session cancels local requests/playback, clears the active session and returns to Start Story without deleting archived captures. Cancel returns to the session. Repeated Create Story clicks cannot submit a second story while one is running; a failed manual request keeps saved progress for retry. Menu pinches do not trigger the capture gesture.
+
 ## Backend setup
 
 Install **Python 3.12**, then run:
