@@ -15,6 +15,7 @@ namespace BrailleSoundDemo.PhysicalStory
     [Serializable] public sealed class PhysicalColorResult
     {
         public string sessionId, frameId, coordinateSystem, status, captureTimestampUtc;
+        public string workspaceId, experienceSessionId;
         public int imageWidth, imageHeight, analysisRevision;
         public bool ready;
         public bool automaticBlockDetection;

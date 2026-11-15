@@ -55,6 +55,8 @@ namespace BrailleSoundDemo.Presentation
             return menu;
         }
 
+        public bool DialogOpen => dialogOpen;
+
         public void Open()
         {
             if (coordinator != null) Activate(Action.Open);
@@ -64,6 +66,8 @@ namespace BrailleSoundDemo.Presentation
         {
             get
             {
+                if(coordinator!=null && !coordinator.LiveConversationEnabled)
+                    return coordinator.PreparedStorySubmitted?.Invoke()==true;
                 var flow = coordinator?.Flow;
                 return flow == null || flow.StoryFinishRequested || flow.State == ConversationState.RequestingStory ||
                     flow.State == ConversationState.Story || flow.State == ConversationState.Finished;
@@ -166,6 +170,14 @@ namespace BrailleSoundDemo.Presentation
         {
             if (coordinator == null || rig == null) return;
             EnsureVisuals();
+            if(!coordinator.ExperienceActive)
+            {
+                if(visualRoot!=null) visualRoot.gameObject.SetActive(false);
+                dialogOpen=false; uiPressHeld=false;
+                coordinator.SetFinishMenuOpen(false);
+                return;
+            }
+            if(visualRoot!=null) visualRoot.gameObject.SetActive(true);
             if (visualRoot == null) return;
             Refresh();
             if (Time.unscaledTime >= nextHandSearch)
@@ -321,7 +333,7 @@ namespace BrailleSoundDemo.Presentation
 
         void OnGUI()
         {
-            if (coordinator == null || XRSettings.isDeviceActive) return;
+            if (coordinator == null || !coordinator.ExperienceActive || XRSettings.isDeviceActive) return;
             if (!dialogOpen)
             {
                 if (GUI.Button(new Rect(Screen.width - 120, 20, 100, 42), "Finish")) Activate(Action.Open);

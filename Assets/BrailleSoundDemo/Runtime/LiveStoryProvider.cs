@@ -16,11 +16,13 @@ namespace BrailleSoundDemo
     [Serializable] public sealed class BackendReply
     {
         public string sessionId, requestId, text, audioPath, error, code;
+        public string workspaceId, experienceSessionId;
         public BackendMetrics metrics;
     }
     [Serializable] sealed class BackendStoryRequest
     {
         public string sessionId, requestId;
+        public string workspaceId, experienceSessionId;
         public StoryContext context;
     }
 
@@ -29,47 +31,54 @@ namespace BrailleSoundDemo
     {
         public const string BaseUrl = "http://127.0.0.1:8766";
         readonly Func<string> currentSession;
+        readonly Func<ExperienceIdentity> currentExperience;
         readonly List<UnityWebRequest> activeRequests = new List<UnityWebRequest>();
         readonly List<AudioClip> clips = new List<AudioClip>();
         int revision;
         public Action<string,int> GenerationAttemptStarted { get; set; }
         public const int MaximumGenerationAttempts = 2;
-        public LiveStoryProvider(Func<string> session) { currentSession = session ?? throw new ArgumentNullException(nameof(session)); }
+        public LiveStoryProvider(Func<string> session, Func<ExperienceIdentity> experience = null)
+        {
+            currentSession = session ?? throw new ArgumentNullException(nameof(session));
+            currentExperience = experience ?? (() => new ExperienceIdentity());
+        }
         public IEnumerator Question(StoryContext context, Action<StoryReply> completed) => Generate("question", context, completed);
         public IEnumerator Story(StoryContext context, Action<StoryReply> completed) => Generate("story", context, completed);
 
         IEnumerator Generate(string operation, StoryContext context, Action<StoryReply> completed)
         {
             string session = currentSession(); int token = revision;
+            var owner = currentExperience();
             StoryReply result = null;
             for (int attempt = 1; attempt <= MaximumGenerationAttempts; attempt++)
             {
-                if (!Valid(token, session)) yield break;
+                if (!Valid(token, session, owner)) yield break;
                 GenerationAttemptStarted?.Invoke(operation, attempt);
-                if (!Valid(token, session)) yield break;
+                if (!Valid(token, session, owner)) yield break;
                 result = null;
-                yield return GenerateAttempt(operation, context, session, token, value => result = value);
-                if (!Valid(token, session)) yield break;
+                yield return GenerateAttempt(operation, context, session, owner, token, value => result = value);
+                if (!Valid(token, session, owner)) yield break;
                 if (result == null) result = new StoryReply { error = "The Python backend returned no response.", errorCode = "no_response" };
                 result.generationAttempts = attempt;
                 if (string.IsNullOrEmpty(result.error) || attempt == MaximumGenerationAttempts || !RetryableGenerationError(result.errorCode)) break;
                 Debug.LogWarning("[Voice retry] operation=" + operation + " attempt=" + attempt + " code=" + result.errorCode + "; retrying once.");
                 yield return new WaitForSecondsRealtime(.5f);
             }
-            if (Valid(token, session)) completed?.Invoke(result);
+            if (Valid(token, session, owner)) completed?.Invoke(result);
         }
 
         // A fresh request ID intentionally starts a new generation attempt.
         // Reusing the failed ID would only return the backend's cached failure.
-        IEnumerator GenerateAttempt(string operation, StoryContext context, string session, int token, Action<StoryReply> completed)
+        IEnumerator GenerateAttempt(string operation, StoryContext context, string session, ExperienceIdentity owner, int token, Action<StoryReply> completed)
         {
             string requestId = Guid.NewGuid().ToString("N");
-            var payload = new BackendStoryRequest { sessionId = session, requestId = requestId, context = context };
+            var payload = new BackendStoryRequest { sessionId = session, requestId = requestId, context = context,
+                workspaceId = owner.WorkspaceId, experienceSessionId = owner.ExperienceSessionId };
             BackendReply reply = null;
             double beganAt=Time.realtimeSinceStartupAsDouble;
-            yield return Post("/" + operation, Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload)), "application/json", session, requestId, 150, token, value => reply = value);
+            yield return Post("/" + operation, Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload)), "application/json", session, requestId, 150, owner, token, value => reply = value);
             double repliedAt=Time.realtimeSinceStartupAsDouble;
-            if (!Valid(token, session)) yield break;
+            if (!Valid(token, session, owner)) yield break;
             if (reply == null || !string.IsNullOrEmpty(reply.error))
             {
                 completed(new StoryReply { error = reply?.error ?? "The Python backend returned no response.", errorCode = reply?.code ?? "no_response" }); yield break;
@@ -84,7 +93,7 @@ namespace BrailleSoundDemo
                 request.timeout = 30; request.redirectLimit = 0; activeRequests.Add(request);
                 yield return request.SendWebRequest();
                 activeRequests.Remove(request);
-                if (!Valid(token, session)) yield break;
+                if (!Valid(token, session, owner)) yield break;
                 if (request.result != UnityWebRequest.Result.Success) error = "Could not download generated speech (HTTP " + request.responseCode + ").";
                 else audio = request.downloadHandler.data;
             }
@@ -94,7 +103,7 @@ namespace BrailleSoundDemo
             try
             {
                 clip = WavCodec.CreateClip(audio, "Generated " + operation + " " + requestId);
-                path = Path.Combine(Application.persistentDataPath, "GeneratedSpeech", session, operation + "-" + requestId + ".wav");
+                path = Path.Combine(owner.DirectoryUnder(Application.persistentDataPath), "GeneratedSpeech", session, operation + "-" + requestId + ".wav");
                 Directory.CreateDirectory(Path.GetDirectoryName(path)); File.WriteAllBytes(path, audio);
                 clips.Add(clip);
             }
@@ -103,13 +112,14 @@ namespace BrailleSoundDemo
                 if (clip != null) UnityEngine.Object.Destroy(clip);
                 error = "Could not load or save generated speech: " + e.Message;
             }
-            if (!Valid(token, session)) yield break;
+            if (!Valid(token, session, owner)) yield break;
             Debug.Log("[VoiceTiming] operation="+operation+
                 " postMs="+((repliedAt-beganAt)*1000).ToString("F0")+
                 " downloadMs="+((downloadedAt-repliedAt)*1000).ToString("F0")+
                 " decodeAndSaveMs="+((Time.realtimeSinceStartupAsDouble-downloadedAt)*1000).ToString("F0")+
                 " backend="+(reply.metrics != null ? JsonUtility.ToJson(reply.metrics) : "unavailable"));
-            completed(error == null ? new StoryReply { text = reply.text, audioClip = clip, audioFile = path } : new StoryReply { error = error, errorCode = "audio_local_storage" });
+            completed(error == null ? new StoryReply { text = reply.text, audioClip = clip, audioFile = path,
+                audioPath = reply.audioPath } : new StoryReply { error = error, errorCode = "audio_local_storage" });
         }
 
         static bool RetryableGenerationError(string code)
@@ -121,6 +131,8 @@ namespace BrailleSoundDemo
                 case "api_access": case "key_missing": case "dependency_missing":
                 case "invalid_context": case "invalid_id": case "answer_order":
                 case "finish_required": case "request_conflict": case "audio_local_storage":
+                case "request_interrupted": case "request_pending": case "result_save_failed":
+                case "request_save_failed": case "audio_save_failed": case "invalid_workspace_owner":
                     return false;
                 default: return true;
             }
@@ -129,10 +141,11 @@ namespace BrailleSoundDemo
         public IEnumerator Transcribe(byte[] wav, Action<BackendReply> completed)
         {
             string session = currentSession(), requestId = Guid.NewGuid().ToString("N"); int token = revision;
-            string path = "/transcribe?sessionId=" + Uri.EscapeDataString(session) + "&requestId=" + requestId;
-            yield return Post(path, wav, "audio/wav", session, requestId, 60, token, completed);
+            var owner = currentExperience();
+            string path = "/transcribe?sessionId=" + Uri.EscapeDataString(session) + "&requestId=" + requestId + owner.Query;
+            yield return Post(path, wav, "audio/wav", session, requestId, 60, owner, token, completed);
         }
-        IEnumerator Post(string path, byte[] body, string contentType, string session, string requestId, int timeout, int token, Action<BackendReply> completed)
+        IEnumerator Post(string path, byte[] body, string contentType, string session, string requestId, int timeout, ExperienceIdentity owner, int token, Action<BackendReply> completed)
         {
             BackendReply reply = null;
             using (var request = new UnityWebRequest(BaseUrl + path, "POST"))
@@ -142,7 +155,7 @@ namespace BrailleSoundDemo
                 activeRequests.Add(request);
                 yield return request.SendWebRequest();
                 activeRequests.Remove(request);
-                if (!Valid(token, session)) yield break;
+                if (!Valid(token, session, owner)) yield break;
                 string data = request.downloadHandler.text;
                 try { if (!string.IsNullOrEmpty(data) && data.Length < 64000) reply = JsonUtility.FromJson<BackendReply>(data); }
                 catch (ArgumentException) { }
@@ -152,12 +165,14 @@ namespace BrailleSoundDemo
                         "Python backend unavailable (HTTP " + request.responseCode + "). Start the backend and check USB forwarding.";
                     reply = new BackendReply { error = detail, code = reply?.code ?? "transport" };
                 }
-                else if (reply == null || reply.sessionId != session || reply.requestId != requestId)
+                else if (reply == null || reply.sessionId != session || reply.requestId != requestId ||
+                    !owner.Matches(reply.workspaceId, reply.experienceSessionId))
                     reply = new BackendReply { error = "Rejected a backend response with missing or mismatched session/request IDs.", code = "invalid_response" };
             }
-            if (Valid(token, session)) completed(reply);
+            if (Valid(token, session, owner)) completed(reply);
         }
-        bool Valid(int token, string session) => token == revision && currentSession() == session;
+        bool Valid(int token, string session, ExperienceIdentity owner) =>
+            token == revision && currentSession() == session && owner.Matches(currentExperience());
         static bool SafeAudioPath(string path)
         {
             if (string.IsNullOrEmpty(path) || !path.StartsWith("/audio/", StringComparison.Ordinal) || !path.EndsWith(".wav", StringComparison.Ordinal)) return false;

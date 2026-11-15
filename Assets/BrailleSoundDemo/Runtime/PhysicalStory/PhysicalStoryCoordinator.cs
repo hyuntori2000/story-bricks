@@ -18,6 +18,7 @@ namespace BrailleSoundDemo.PhysicalStory
         public Quaternion rotation;
         public Vector2 size;
         public string[] componentIds;
+        public bool spatialValid = true;
         [NonSerialized] public Transform anchor;
     }
 
@@ -45,6 +46,7 @@ namespace BrailleSoundDemo.PhysicalStory
         readonly List<PhysicalWordAnchor> conversationQueue = new List<PhysicalWordAnchor>();
         bool initialized, awaitingFrame, awaitingRecognition, resetting;
         bool startingConversationWord, waitingForConversationRecapture, finishMenuOpen;
+        bool experienceActive = true, presentationInputBlocked;
         int generation, captureRevision, captureWordIndex, nextCaptureIndex;
         string captureStorySession, observedStorySession, lastFlowMessage;
         string workspaceCaptureSession, lastAcceptedGroupId, pendingPresentationGroupId;
@@ -62,6 +64,14 @@ namespace BrailleSoundDemo.PhysicalStory
         Func<bool> ownedCapturedContextGate;
         Func<bool> ownedCaptureFeedbackGate;
 
+        public ExperienceSessionStore SessionStore { get; private set; }
+        public string ExperienceSessionId => workspaceCaptureSession;
+        public bool ExperienceActive => experienceActive;
+        public bool FinishDialogOpen => GetComponent<SessionFinishMenu>()?.DialogOpen == true;
+        public Func<bool> PreparedStoryCreator { get; set; }
+        public Func<bool> PreparedStorySubmitted { get; set; }
+        public event Action SessionEnded;
+        public event Action SpatialReferenceReset;
         public ConversationFlow Flow { get; private set; }
         public StoryImagePipeline Images { get; private set; }
         public IReadOnlyList<PhysicalWordAnchor> Anchors => anchors;
@@ -87,18 +97,34 @@ namespace BrailleSoundDemo.PhysicalStory
             if(id!="demo" && id!="judy") throw new ArgumentException("Workspace must be demo or judy.",nameof(id));
             bool changed=workspaceId!=id || liveConversation!=enableLiveConversation ||
                 (presenterPrefab!=null && mediaPresenterPrefab!=presenterPrefab);
-            if(initialized && changed) ResetPhysicalSession("Workspace changed");
-            workspaceId=id;liveConversation=enableLiveConversation;
+            workspaceId=id; liveConversation=enableLiveConversation;
             if(presenterPrefab!=null) mediaPresenterPrefab=presenterPrefab;
             ApplyPhysicalPresentation();
-            if(initialized && changed)
-            {
-                Flow.ConfigureLive(liveConversation);
-                Flow.ConfigurePhysicalWords(true);
-                Flow.Palette.LiveEffectsEnabled=liveConversation;
-                observedStorySession=Flow.Record.sessionId;
-                BindStagePresenter();
-            }
+            if(initialized && changed) ResetPhysicalSession("Workspace changed");
+        }
+
+        public bool BeginExperience(string id)
+        {
+            if(!initialized || (id!="judy" && id!="demo")) return false;
+            experienceActive=true;
+            workspaceId=id; liveConversation=id=="demo";
+            ApplyPhysicalPresentation();
+            ResetPhysicalSession("Experience started");
+            SetStatus("Double pinch above the blocks. Your photo follows after 3 seconds.");
+            return true;
+        }
+
+        public void ShowExperienceMenu()
+        {
+            experienceActive=false;
+            CancelRecognition(); table?.CancelPinchTarget(); sender?.CancelPending("Choose an experience first");
+            if(statusHint!=null) statusHint.gameObject.SetActive(false);
+        }
+
+        public void SetPresentationInputBlocked(bool blocked)
+        {
+            if(blocked && !presentationInputBlocked) table?.CancelPinchTarget();
+            presentationInputBlocked=blocked;
         }
 
         public void Configure(TableDepthTestDemo tableDemo, QuestFrameCapture captureSender,
@@ -132,6 +158,10 @@ namespace BrailleSoundDemo.PhysicalStory
             Flow=GetComponent<ConversationFlow>();
             if(Flow == null) Flow=gameObject.AddComponent<ConversationFlow>();
             workspaceCaptureSession=Guid.NewGuid().ToString("N");
+            SessionStore=GetComponent<ExperienceSessionStore>();
+            if(SessionStore==null) SessionStore=gameObject.AddComponent<ExperienceSessionStore>();
+            Flow.SetExperienceContext(workspaceId,workspaceCaptureSession);
+            sender.SetExperienceContext(workspaceId,workspaceCaptureSession);
             Flow.ConfigureLive(liveConversation);
             Flow.ConfigurePhysicalWords(true);
             Flow.UseNeutralCueForUnknownPhysicalWords=false;
@@ -172,6 +202,7 @@ namespace BrailleSoundDemo.PhysicalStory
             initialized=true;
             BindStagePresenter();
             SessionFinishMenu.Attach(this,rig);
+            ExperienceRouter.Attach(this,rig);
             SetStatus("Ready. Double pinch above printed labels; one photo follows after 3 seconds.");
             Debug.Log("[PhysicalStory] Recognition="+recognitionBaseUrl+" | Live speech="+LiveStoryProvider.BaseUrl+
                 " | Workspace="+workspaceId+" liveConversation="+liveConversation+"; words queue until a recognized period ends the story.");
@@ -189,7 +220,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         bool CanCapture()
         {
-            if(!initialized || !isActiveAndEnabled || finishMenuOpen || resetting || awaitingFrame || awaitingRecognition || table == null ||
+            if(!initialized || !isActiveAndEnabled || !experienceActive || presentationInputBlocked || finishMenuOpen || resetting || awaitingFrame || awaitingRecognition || table == null ||
                 !table.RequiredPermissionsGranted || !table.HeadTrackingValid) return false;
             return true;
         }
@@ -252,6 +283,7 @@ namespace BrailleSoundDemo.PhysicalStory
             awaitingFrame=false;
             if(!accepted) { SetStatus("Photo not accepted: "+message); return; }
             var original=sender.LastMetadata;
+            if(original!=null) SessionStore?.RecordCapture(original);
             if(original == null || original.frameRevision!=captureRevision ||
                 table.ReferenceRevision!=captureRevision || workspaceCaptureSession!=captureStorySession)
             { SetStatus("Discarded a photo from an obsolete tracking reference or workspace."); return; }
@@ -267,7 +299,9 @@ namespace BrailleSoundDemo.PhysicalStory
             float deadline=Time.realtimeSinceStartup+Mathf.Max(5,recognitionWaitSeconds);
             int lastAnalysis=-1;
             string url=recognitionBaseUrl+"/recognition/result?sessionId="+Uri.EscapeDataString(metadata.sessionId)+
-                "&frameId="+Uri.EscapeDataString(metadata.frameId);
+                "&frameId="+Uri.EscapeDataString(metadata.frameId)+
+                "&workspaceId="+Uri.EscapeDataString(metadata.workspaceId)+
+                "&experienceSessionId="+Uri.EscapeDataString(metadata.experienceSessionId);
             while(PollValid(token,storySession,metadata.frameRevision,wordIndex))
             {
                 if(Time.realtimeSinceStartup>deadline)
@@ -292,7 +326,8 @@ namespace BrailleSoundDemo.PhysicalStory
                     PhysicalColorResult result=null;
                     try { result=JsonUtility.FromJson<PhysicalColorResult>(body); }
                     catch(ArgumentException) { }
-                    if(result == null || result.sessionId!=metadata.sessionId || result.frameId!=metadata.frameId)
+                    if(result == null || result.sessionId!=metadata.sessionId || result.frameId!=metadata.frameId ||
+                        result.workspaceId!=metadata.workspaceId || result.experienceSessionId!=metadata.experienceSessionId)
                     { FinishWaiting("Rejected a recognition response with a mismatched photo identity."); yield break; }
                     if(result.ready && result.status=="recognized")
                     {
@@ -340,6 +375,7 @@ namespace BrailleSoundDemo.PhysicalStory
             anchor.componentIds=(string[])geometry.ComponentIds.Clone();
             anchors.Add(anchor); anchorsById.Add(anchor.groupId,anchor);
             lastAcceptedGroupId=anchor.groupId;
+            SessionStore?.RecordWord(anchor.groupId,anchor.word,anchor.index,anchor.frameId);
             WordMediaPresenter.Attach(mediaPresenterPrefab,anchor.anchor,workspaceCaptureSession,
                 anchor.groupId,anchor.index,anchor.word,workspaceId,!liveConversation);
             PublishPresentation("word.accepted",anchor.groupId,anchor.index,anchor.word,anchor.anchor);
@@ -396,7 +432,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         void TryStartQueuedConversation()
         {
-            if(!initialized || finishMenuOpen || resetting || startingConversationWord || !liveConversation || waitingForConversationRecapture ||
+            if(!initialized || !experienceActive || finishMenuOpen || resetting || startingConversationWord || !liveConversation || waitingForConversationRecapture ||
                 Flow==null || Flow.Record==null || conversationQueue.Count==0 ||
                 (inputFeedback!=null && inputFeedback.isPlaying)) return;
             int round=Flow.ExpectedWordIndex;
@@ -535,7 +571,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         Vector3? ResolveSavedWordPosition(string groupId)
         {
-            return !string.IsNullOrEmpty(groupId) && anchorsById.TryGetValue(groupId,out var word) && word.anchor != null
+            return !string.IsNullOrEmpty(groupId) && anchorsById.TryGetValue(groupId,out var word) && word.anchor != null && word.spatialValid
                 ? word.anchor.position : (Vector3?)null;
         }
 
@@ -555,7 +591,21 @@ namespace BrailleSoundDemo.PhysicalStory
         void OnReferenceReset(int _,string reason)
         {
             if(!initialized) return;
-            ResetPhysicalSession("Tracking reference reset: "+reason);
+            // Tracking invalidates positions and in-flight captures, not the child's saved story.
+            CancelRecognition(); table?.CancelPinchTarget(); sender?.CancelPending(reason); ClearPendingPinchBox();
+            foreach(var word in anchors)
+            {
+                word.spatialValid=false;
+                if(word.anchor==null) continue;
+                foreach(var renderer in word.anchor.GetComponentsInChildren<Renderer>()) renderer.enabled=false;
+                foreach(var presenter in word.anchor.GetComponentsInChildren<WordMediaPresenter>())
+                { presenter.CancelPlayback(); presenter.PresentationEnabled=false; }
+                var source=word.anchor.GetComponent<WordSoundAttachment>()?.Source;
+                if(source!=null) { source.Stop(); source.spatialBlend=0; source.spatialize=false; }
+            }
+            SpatialReferenceReset?.Invoke();
+            if(experienceActive) SetStatus("Tracking changed. Saved words and answers are kept; reacquire the table for new captures.");
+            Debug.Log("[PhysicalStory] Preserved experience after tracking reset: "+reason);
         }
 
         /// <summary>The menu owns this gate through pointer release, so its pinches never arm a photo.</summary>
@@ -571,7 +621,8 @@ namespace BrailleSoundDemo.PhysicalStory
 
         public bool CreateStoryFromSavedProgress()
         {
-            if(!initialized || Flow==null || SavedWordCount==0) return false;
+            if(!initialized || !experienceActive || Flow==null || SavedWordCount==0) return false;
+            if(!liveConversation) return PreparedStoryCreator?.Invoke()==true;
             var queued=new List<WordRecord>();
             foreach(var word in liveConversation ? conversationQueue : anchors)
                 if(word.anchor!=null && PhysicalWordInputPolicy.IsRecognizedWord(word.word))
@@ -596,8 +647,10 @@ namespace BrailleSoundDemo.PhysicalStory
         {
             if(!initialized) return;
             SetFinishMenuOpen(true);
+            experienceActive=false;
             ResetPhysicalSession("Session ended");
-            SetStatus("Ready for a new story. Double pinch above the blocks to capture a word.");
+            SessionEnded?.Invoke();
+            if(statusHint!=null) statusHint.gameObject.SetActive(false);
         }
 
         public void ResetPhysicalSession(string reason="Physical story reset")
@@ -606,6 +659,7 @@ namespace BrailleSoundDemo.PhysicalStory
             resetting=true;
             try
             {
+                SessionStore?.End(reason);
                 CancelRecognition();
                 if(inputFeedback != null) inputFeedback.Stop();
                 table?.CancelPinchTarget();
@@ -613,11 +667,16 @@ namespace BrailleSoundDemo.PhysicalStory
                 PresentationEvents.ResetSession(workspaceCaptureSession);
                 ClearAnchors();
                 workspaceCaptureSession=Guid.NewGuid().ToString("N");nextCaptureIndex=0;
+                if(experienceActive) SessionStore?.Begin(workspaceId,workspaceCaptureSession);
+                sender?.SetExperienceContext(workspaceId,workspaceCaptureSession);
                 waitingForConversationRecapture=false;
                 if(Flow != null)
                 {
+                    Flow.SetExperienceContext(workspaceId,workspaceCaptureSession);
                     if(Flow.IsLive!=liveConversation) Flow.ConfigureLive(liveConversation);
                     else Flow.ResetSession();
+                    Flow.ConfigurePhysicalWords(true);
+                    Flow.Palette.LiveEffectsEnabled=liveConversation;
                     observedStorySession=Flow.Record.sessionId;
                     Images?.ResetSession(observedStorySession);
                     Flow.SetSpatialReady(table != null && table.HeadTrackingValid);
@@ -638,6 +697,7 @@ namespace BrailleSoundDemo.PhysicalStory
                 observedStorySession=Flow.Record.sessionId;
                 Images?.ResetSession(observedStorySession);
             }
+            if(experienceActive) SessionStore?.RecordConversation(Flow.Record);
             string message=Flow.State+" | "+Flow.Status;
             if(message!=lastFlowMessage) { lastFlowMessage=message; Debug.Log("[PhysicalStory] "+message); }
             if(liveConversation && !WaitingForRecognition) ShowStatusHint(Flow.Status);
@@ -645,6 +705,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         void OnStoryOutputReady(StoryOutput output)
         {
+            SessionStore?.RecordStory(output);
             EmitPresentationEvent("story.ready");
             if(Images == null || Flow?.Record == null) return;
             if(observedStorySession!=Flow.Record.sessionId) OnFlowChanged();
@@ -681,7 +742,7 @@ namespace BrailleSoundDemo.PhysicalStory
 
         void ShowStatusHint(string message)
         {
-            if(rig==null || rig.centerEyeAnchor==null) return;
+            if(!experienceActive || rig==null || rig.centerEyeAnchor==null) return;
             if(statusHint==null)
             {
                 var root=new GameObject("Story progress hint");
@@ -694,6 +755,7 @@ namespace BrailleSoundDemo.PhysicalStory
                 statusHint.fontSize=48;statusHint.characterSize=.008f;
                 statusHint.color=new Color(.85f,.95f,1f);
             }
+            statusHint.gameObject.SetActive(true);
             string value=message ?? "";
             if(value.Length>150) value=value.Substring(0,147)+"...";
             var lines=new List<string>();
@@ -708,6 +770,7 @@ namespace BrailleSoundDemo.PhysicalStory
         void OnDisable()
         {
             if(!initialized) return;
+            experienceActive=false;
             ResetPhysicalSession("Physical story disabled");
             Flow?.SetSpatialReady(false);
         }

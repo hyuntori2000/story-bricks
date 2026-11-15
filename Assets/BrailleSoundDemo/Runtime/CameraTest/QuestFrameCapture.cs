@@ -16,6 +16,7 @@ namespace BrailleSoundDemo.CameraTest
     public sealed class QuestCaptureContext
     {
         public string SessionId;
+        public string WorkspaceId, ExperienceSessionId;
         public int FrameRevision;
         public Pose BoardPose;
         public float BoardWidth;
@@ -51,6 +52,7 @@ namespace BrailleSoundDemo.CameraTest
         private Coroutine operation;
         private UnityWebRequest activeUpload;
         private Vector2Int loggedResolution;
+        private ExperienceIdentity experience = new ExperienceIdentity();
 
         public bool Busy { get; private set; }
         public string Status { get; private set; } = "Waiting for camera";
@@ -64,6 +66,14 @@ namespace BrailleSoundDemo.CameraTest
         public Func<CaptureMetadata, bool> PrepareMetadata { get; set; }
 
         public bool IsReady => !Busy && CameraIsFresh;
+
+        public void SetExperienceContext(string workspaceId, string experienceSessionId)
+        {
+            var next = new ExperienceIdentity(workspaceId, experienceSessionId);
+            if (experience.Matches(next)) return;
+            CancelPending("Experience changed");
+            experience = next;
+        }
 
         private bool CameraIsFresh => cameraAccess != null && cameraAccess.enabled &&
             cameraAccess.IsPlaying && cameraAccess.Timestamp != default &&
@@ -133,7 +143,10 @@ namespace BrailleSoundDemo.CameraTest
             int token = ++generation;
             DateTime triggerFrameTimestamp = cameraAccess.Timestamp;
             var validity = new CaptureValidityGuard(stillValid, frozenSnapshotStillValid);
-            operation = StartCoroutine(CaptureAndSend(context.Copy(), validity, token, triggerFrameTimestamp,
+            var ownedContext = context.Copy();
+            ownedContext.WorkspaceId = experience.WorkspaceId;
+            ownedContext.ExperienceSessionId = experience.ExperienceSessionId;
+            operation = StartCoroutine(CaptureAndSend(ownedContext, validity, token, triggerFrameTimestamp,
                 PrepareMetadata, Time.realtimeSinceStartupAsDouble));
             return true;
         }
@@ -283,7 +296,8 @@ namespace BrailleSoundDemo.CameraTest
             CaptureAck ack = null;
             try { ack = JsonUtility.FromJson<CaptureAck>(LastResponse); }
             catch (ArgumentException) { /* Treat malformed responses as failure. */ }
-            if (ack == null || !ack.accepted || ack.frameId != metadata.frameId || ack.sessionId != metadata.sessionId)
+            if (ack == null || !ack.accepted || ack.frameId != metadata.frameId || ack.sessionId != metadata.sessionId ||
+                !new ExperienceIdentity(metadata.workspaceId, metadata.experienceSessionId).Matches(ack.workspaceId, ack.experienceSessionId))
             {
                 Finish(token, false, "Python returned an invalid or mismatched frame acknowledgement");
                 yield break;
@@ -340,6 +354,8 @@ namespace BrailleSoundDemo.CameraTest
                 metadata = new CaptureMetadata
                 {
                     sessionId = context.SessionId,
+                    workspaceId = context.WorkspaceId,
+                    experienceSessionId = context.ExperienceSessionId,
                     frameId = Guid.NewGuid().ToString("N"),
                     frameRevision = context.FrameRevision,
                     cameraEye = cameraAccess.CameraPosition.ToString().ToLowerInvariant(),
@@ -577,6 +593,7 @@ namespace BrailleSoundDemo.CameraTest
         {
             public int schemaVersion = 1;
             public string sessionId;
+            public string workspaceId, experienceSessionId;
             public string frameId;
             public int frameRevision;
             public string cameraEye;
@@ -713,6 +730,7 @@ namespace BrailleSoundDemo.CameraTest
             public bool accepted;
             public string frameId;
             public string sessionId;
+            public string workspaceId, experienceSessionId;
             public string status;
             public RecognitionAck recognition;
         }

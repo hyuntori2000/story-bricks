@@ -52,6 +52,7 @@ namespace BrailleSoundDemo
     [Serializable] public sealed class ConversationRecord
     {
         public string sessionId;
+        public string workspaceId, experienceSessionId;
         public string startedAt;
         public bool fullyMocked = true;
         public List<WordRecord> words = new List<WordRecord>();
@@ -61,6 +62,7 @@ namespace BrailleSoundDemo
         public List<ConversationFailureRecord> failures = new List<ConversationFailureRecord>();
         public string finalStory;
         public string finalStoryAudioFile;
+        public string finalStoryAudioPath;
         public bool completed;
     }
     [Serializable] public sealed class ConversationFailureRecord
@@ -84,6 +86,7 @@ namespace BrailleSoundDemo
         public string audioResource;
         public AudioClip audioClip;
         public string audioFile;
+        public string audioPath;
         public string error;
         public string errorCode;
         public int generationAttempts;
@@ -93,9 +96,11 @@ namespace BrailleSoundDemo
     {
         public int schemaVersion = 1;
         public string sessionId;
+        public string workspaceId, experienceSessionId;
         public string storyText;
         public string storyAudioResource;
         public string storyAudioFile;
+        public string storyAudioPath;
         public List<WordRecord> words = new List<WordRecord>();
         public List<ConversationTurn> turns = new List<ConversationTurn>();
     }
@@ -188,6 +193,7 @@ namespace BrailleSoundDemo
         public bool TestFastMode;
         public event Action Changed;
         public event Action<StoryOutput> StoryOutputReady;
+        public event Action<StoryOutput> StoryNarrationCompleted;
         public event Action<string> WordRecaptureRequested;
         public event Action<string,AudioClip> WordSoundPrepared;
         public event Action<WordRecord> QuestionStarted;
@@ -202,11 +208,17 @@ namespace BrailleSoundDemo
         LiveStoryProvider liveProvider;
         MicrophoneAnswerInput microphone;
         bool liveAnswerPending;
+        bool applicationPaused;
+        string interruptedAnswerSession;
+        int interruptedAnswerGeneration = -1, interruptedAnswerIndex = -1;
         int[] automaticAnswerRetries = new int[4];
         int lastAnswerFailureIndex = -1;
         double lastAnswerActionAt = double.NegativeInfinity;
         int activeIndex = -1, generation;
         string pendingQuestion;
+        ExperienceIdentity experience = new ExperienceIdentity();
+        ExperienceIdentity RecordExperience => Record == null ? experience :
+            new ExperienceIdentity(Record.workspaceId, Record.experienceSessionId);
         StoryOutput lastStoryOutput;
         bool storyRequested;
         bool physicalFinishRequested;
@@ -230,6 +242,7 @@ namespace BrailleSoundDemo
             provider = new MockStoryProvider();
             Palette = GetComponent<SoundPalettePipeline>();
             if (Palette == null) Palette = gameObject.AddComponent<SoundPalettePipeline>();
+            Palette.ExperienceContext = () => RecordExperience;
             var source = new GameObject("Word sound source"); source.transform.SetParent(transform, false);
             wordSource = source.AddComponent<AudioSource>(); wordSource.playOnAwake = false;
             SpatializerConfigured = AudioSettings.GetSpatializerPluginName() == "Meta XR Audio";
@@ -241,6 +254,11 @@ namespace BrailleSoundDemo
             voiceSource = voice.AddComponent<AudioSource>(); voiceSource.playOnAwake = false;
             voiceSource.spatialBlend = 0; voiceSource.volume = .8f;
             ResetSession();
+        }
+        /// <summary>Sets the owner of the next session. The coordinator performs its normal reset afterwards.</summary>
+        public void SetExperienceContext(string workspaceId, string experienceSessionId)
+        {
+            experience = new ExperienceIdentity(workspaceId, experienceSessionId);
         }
         /// <summary>Explicitly selects real backend/microphone operation or deterministic fixtures. Switching starts a new session.</summary>
         public void ConfigureLive(bool enabled)
@@ -257,7 +275,7 @@ namespace BrailleSoundDemo
                     microphone = gameObject.AddComponent<MicrophoneAnswerInput>();
                     microphone.StateChanged += OnMicrophoneStateChanged;
                 }
-                liveProvider = new LiveStoryProvider(() => Record?.sessionId) {
+                liveProvider = new LiveStoryProvider(() => Record?.sessionId, () => RecordExperience) {
                     GenerationAttemptStarted = OnGenerationAttemptStarted
                 };
                 provider = liveProvider;
@@ -426,11 +444,11 @@ namespace BrailleSoundDemo
             {
                 // ConfigureLive resets the record; manual finish must retain it.
                 CancelProviderWork(true);
-                liveProvider = new LiveStoryProvider(() => Record?.sessionId) {
+                liveProvider = new LiveStoryProvider(() => Record?.sessionId, () => RecordExperience) {
                     GenerationAttemptStarted = OnGenerationAttemptStarted
                 };
                 provider = liveProvider; IsLive = true; Record.fullyMocked = false;
-                SessionPath = Path.Combine(Application.persistentDataPath, "LiveSessions", Record.sessionId + ".json");
+                SessionPath = Path.Combine(RecordExperience.DirectoryUnder(Application.persistentDataPath), "LiveSessions", Record.sessionId + ".json");
             }
             Record.words = combined;
             activeIndex = combined.Count - 1;
@@ -639,6 +657,17 @@ namespace BrailleSoundDemo
             bool retry = lastAnswerFailureIndex == index;
             while (Valid(token))
             {
+                if (InterruptedAnswerMatches(index, token))
+                {
+                    // Resume the same unanswered round with a fresh recording.
+                    // A canceled partial recording is never sent for transcription.
+                    while (Valid(token) && (applicationPaused || !SpatialReady || IsAudioPlaying)) yield return null;
+                    if (!Valid(token) || !InterruptedAnswerMatches(index, token)) yield break;
+                    ClearInterruptedAnswer(); retry = true;
+                    Log("[Voice input] Resuming the interrupted answer. Listen for the ready tone, then speak again.");
+                    if (!Valid(token)) yield break;
+                }
+                else if (applicationPaused) { yield return null; continue; }
                 SetState(ConversationState.PreparingAnswer, retry
                     ? "Let's try your answer again. Listen for the ready tone, then speak."
                     : "Listen for the ready tone, then speak your answer.");
@@ -652,10 +681,12 @@ namespace BrailleSoundDemo
                     if (!Valid(token)) yield break;
                     yield return new WaitForSecondsRealtime(.12f);
                 }
+                if (InterruptedAnswerMatches(index, token)) { retry = true; continue; }
                 MicrophoneCapture capture = null;
                 yield return microphone.Capture(value => { if (Valid(token)) capture = value; },
                     () => MicrophoneReadyCue(token));
                 if (!Valid(token)) yield break;
+                if (InterruptedAnswerMatches(index, token)) { retry = true; continue; }
                 if (capture == null || !string.IsNullOrEmpty(capture.error))
                 {
                     lastAnswerFailureIndex = index;
@@ -665,6 +696,7 @@ namespace BrailleSoundDemo
                     if (capture != null && capture.retryable && TryAutomaticAnswerRetry(index, capture.code))
                     { retry = true; continue; }
                     yield return AwaitManualAnswerRetry(detail, token);
+                    if (InterruptedAnswerMatches(index, token)) { liveAnswerPending = true; retry = true; continue; }
                     yield break;
                 }
 
@@ -688,6 +720,7 @@ namespace BrailleSoundDemo
                     if (transcript != null && string.IsNullOrEmpty(transcript.error) && string.IsNullOrWhiteSpace(transcript.text)) code = "no_speech";
                     if (TryAutomaticAnswerRetry(index, code)) { retry = true; continue; }
                     yield return AwaitManualAnswerRetry(detail, token);
+                    if (InterruptedAnswerMatches(index, token)) { liveAnswerPending = true; retry = true; continue; }
                     yield break;
                 }
                 liveAnswerPending = false;
@@ -703,6 +736,26 @@ namespace BrailleSoundDemo
             if (!Valid(token)) yield break;
             // This short speaker tail is discarded along with the cue samples.
             yield return new WaitForSecondsRealtime(.08f);
+        }
+        void OnApplicationPause(bool paused)
+        {
+            applicationPaused = paused;
+            if (!paused || !IsLive || !liveAnswerPending || Record == null || activeIndex < 0 ||
+                Record.words.Count <= activeIndex || Record.turns.Count != activeIndex ||
+                (State != ConversationState.Listening && State != ConversationState.PreparingAnswer)) return;
+            interruptedAnswerSession = Record.sessionId;
+            interruptedAnswerGeneration = generation; interruptedAnswerIndex = activeIndex;
+            microphone?.Cancel();
+            // These states only use the ready/retry cue on the voice source.
+            // Stop that cue so it cannot keep resume waiting for playback to end.
+            if (voiceSource != null) voiceSource.Stop();
+        }
+        bool InterruptedAnswerMatches(int index, int token) => interruptedAnswerGeneration == token &&
+            token == generation && interruptedAnswerIndex == index && activeIndex == index &&
+            Record != null && Record.sessionId == interruptedAnswerSession && Record.turns.Count == index;
+        void ClearInterruptedAnswer()
+        {
+            interruptedAnswerSession = null; interruptedAnswerGeneration = -1; interruptedAnswerIndex = -1;
         }
         void OnMicrophoneStateChanged()
         {
@@ -818,7 +871,8 @@ namespace BrailleSoundDemo
             if (storyJob.error != null) { RecoverRequestFailure(activeIndex, "story", reply, storyJob.error); yield break; }
             if (reply == null || !string.IsNullOrEmpty(reply.error))
             { RecoverRequestFailure(activeIndex, "story", reply, reply?.error ?? "Story provider returned no result."); yield break; }
-            Record.finalStory = reply.text; Record.finalStoryAudioFile = reply.audioFile; CurrentPrompt = reply.text;
+            Record.finalStory = reply.text; Record.finalStoryAudioFile = reply.audioFile;
+            Record.finalStoryAudioPath = reply.audioPath; CurrentPrompt = reply.text;
             Log("STORY!");
             if (!Valid(token)) yield break;
             Log("story - " + reply.text);
@@ -834,6 +888,9 @@ namespace BrailleSoundDemo
             Record.completed = true;
             if (!Save()) yield break;
             SetState(ConversationState.Finished, "Story finished. All " + Record.words.Count + " words and answers are saved.");
+            if (!Valid(token)) yield break;
+            if (lastStoryOutput != null) NotifyPresentation(StoryNarrationCompleted, CopyStoryOutput(lastStoryOutput));
+            if (!Valid(token)) yield break;
             Log("[Session complete] Silent. Reset to start again.");
         }
         IEnumerator PrepareStorySounds(StoryContext context, int token)
@@ -1014,7 +1071,9 @@ namespace BrailleSoundDemo
         static StoryOutput CopyStoryOutput(StoryOutput output)
         {
             var snapshot = new StoryOutput { schemaVersion = output.schemaVersion, sessionId = output.sessionId,
-                storyText = output.storyText, storyAudioResource = output.storyAudioResource, storyAudioFile = output.storyAudioFile };
+                workspaceId = output.workspaceId, experienceSessionId = output.experienceSessionId,
+                storyText = output.storyText, storyAudioResource = output.storyAudioResource, storyAudioFile = output.storyAudioFile,
+                storyAudioPath = output.storyAudioPath };
             foreach (var word in output.words) snapshot.words.Add(CopyWord(word));
             foreach (var turn in output.turns) snapshot.turns.Add(CopyTurn(turn));
             return snapshot;
@@ -1023,10 +1082,11 @@ namespace BrailleSoundDemo
         {
             if (!Valid(token) || lastStoryOutput != null) return false;
             var output = new StoryOutput { schemaVersion = IsLive ? 2 : 1, sessionId = Record.sessionId, storyText = reply.text,
-                storyAudioResource = reply.audioResource, storyAudioFile = reply.audioFile };
+                workspaceId = Record.workspaceId, experienceSessionId = Record.experienceSessionId,
+                storyAudioResource = reply.audioResource, storyAudioFile = reply.audioFile, storyAudioPath = reply.audioPath };
             foreach (var word in context.words) output.words.Add(CopyWord(word));
             foreach (var turn in context.turns) output.turns.Add(CopyTurn(turn));
-            string path = Path.Combine(Application.persistentDataPath, "StoryOutputs", output.sessionId + ".json");
+            string path = Path.Combine(RecordExperience.DirectoryUnder(Application.persistentDataPath), "StoryOutputs", output.sessionId + ".json");
             try { WriteJson(path, JsonUtility.ToJson(output, true)); }
             catch (Exception e) { Fail("Could not export story output: " + e.Message); return false; }
             lastStoryOutput = output; StoryOutputPath = path;
@@ -1064,13 +1124,13 @@ namespace BrailleSoundDemo
         }
         void RecoverRequestFailure(int index, string operation, StoryReply reply, string error)
         {
-            if (operation == "story" && manualStoryFinish)
+            if (operation == "story" && (manualStoryFinish || PhysicalWordsEnabled))
             {
                 Record.failures.Add(new ConversationFailureRecord { operation = operation, error = error,
                     errorCode = reply?.errorCode ?? "provider_failure", generationAttempts = reply?.generationAttempts ?? 0,
                     failedAt = UtcNow(), recaptureRequested = false });
                 storyRequested = false;
-                Fail("Story creation failed. Open Finish to try again or end the session.");
+                Fail("Story creation failed. Your words and answers are saved. Open Finish to try again or end the session.");
                 Save();
                 return;
             }
@@ -1099,7 +1159,7 @@ namespace BrailleSoundDemo
             lastAnswerFailureIndex = -1; lastAnswerActionAt = double.NegativeInfinity;
             activeIndex = -1; ActiveGroupId = ""; ActiveWord = ""; pendingQuestion = ""; CurrentPrompt = "";
             storyRequested = false; Record.completed = false;
-            Record.finalStory = null; Record.finalStoryAudioFile = null;
+            Record.finalStory = null; Record.finalStoryAudioFile = null; Record.finalStoryAudioPath = null;
             lastStoryOutput = null; StoryOutputPath = "";
             if (!Save()) return;
             SetState(index == 0 ? ConversationState.Ready : ConversationState.Silent,
@@ -1111,6 +1171,7 @@ namespace BrailleSoundDemo
         }
         public void ResetSession()
         {
+            ClearInterruptedAnswer();
             generation++; CancelJobMetrics(); StopAllCoroutines();
             if (wordSource != null) wordSource.Stop(); if (voiceSource != null) voiceSource.Stop();
             if (activeSpatialSource != null) activeSpatialSource.Stop();
@@ -1126,8 +1187,9 @@ namespace BrailleSoundDemo
             Array.Clear(preparedLiveWordClips, 0, preparedLiveWordClips.Length);
             activeIndex = -1; ActiveGroupId = ""; ActiveWord = ""; pendingQuestion = ""; CurrentPrompt = ""; logs.Clear();
             storyRequested = false; physicalFinishRequested = false; manualStoryFinish = false; lastStoryOutput = null; StoryOutputPath = "";
-            Record = new ConversationRecord { sessionId = Guid.NewGuid().ToString("N"), startedAt = UtcNow(), fullyMocked = !IsLive };
-            SessionPath = Path.Combine(Application.persistentDataPath, IsLive ? "LiveSessions" : "MockSessions", Record.sessionId + ".json");
+            Record = new ConversationRecord { sessionId = Guid.NewGuid().ToString("N"), startedAt = UtcNow(), fullyMocked = !IsLive,
+                workspaceId = experience.WorkspaceId, experienceSessionId = experience.ExperienceSessionId };
+            SessionPath = Path.Combine(experience.DirectoryUnder(Application.persistentDataPath), IsLive ? "LiveSessions" : "MockSessions", Record.sessionId + ".json");
             SetState(ConversationState.Ready, "Complete the first word.");
             Log(IsLive ? "[Live voice] Microphone, transcription, questions, narration and story use the local Python backend. " +
                 (PhysicalWordsEnabled ? "Word observations come from the physical input coordinator. " : "Word detection is simulated. ") + "Speech is AI-generated."
@@ -1190,6 +1252,7 @@ namespace BrailleSoundDemo
         static string UtcNow() => DateTime.UtcNow.ToString("o");
         void OnDisable()
         {
+            ClearInterruptedAnswer();
             generation++; CancelJobMetrics(); StopAllCoroutines(); if (wordSource != null) wordSource.Stop(); if (voiceSource != null) voiceSource.Stop();
             if (activeSpatialSource != null) activeSpatialSource.Stop();
             Palette?.CancelPending(); Palette?.StopAllPlayback();

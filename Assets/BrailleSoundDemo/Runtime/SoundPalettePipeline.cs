@@ -19,6 +19,7 @@ namespace BrailleSoundDemo
         LiveSoundEffectClient liveClient;
         public bool LiveEffectsEnabled { get; set; }
         public Func<string> SessionId { get; set; }
+        public Func<ExperienceIdentity> ExperienceContext { get; set; }
         int generation;
         bool ambienceEnabled, spatialReady, ambienceRequested, ambiencePaused;
         string ambienceGroupId;
@@ -57,10 +58,10 @@ namespace BrailleSoundDemo
             int token=generation;
             if(LiveEffectsEnabled)
             {
-                string key=(SessionId?.Invoke() ?? "")+":"+Normalize(word);
+                string key=(ExperienceContext?.Invoke()?.Key ?? "")+":"+(SessionId?.Invoke() ?? "")+":"+Normalize(word);
                 if(generatedClips.TryGetValue(key,out var cached) && cached!=null)
                 { yield return null;if(Valid(token)) completed?.Invoke(cached);yield break; }
-                if(liveClient==null) liveClient=new LiveSoundEffectClient(()=>SessionId?.Invoke());
+                if(liveClient==null) liveClient=new LiveSoundEffectClient(()=>SessionId?.Invoke(),()=>ExperienceContext?.Invoke() ?? new ExperienceIdentity());
                 Status="Generating sound for "+Normalize(word);
                 AudioClip generated=null;string error=null;
                 yield return liveClient.Generate(word,(clip,detail)=>{generated=clip;error=detail;});

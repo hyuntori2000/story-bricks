@@ -123,6 +123,9 @@ namespace BrailleSoundDemo.Presentation
             foreach (var cue in cues)
             {
                 if (!Valid(token)) yield break;
+                // Create World has no animation provider yet. Authored videos must never
+                // masquerade as a generated result, including manually emitted video.ready.
+                if(WorkspaceId=="demo" && cue.action=="video") continue;
                 if (cue.action == "voice" && !(voiceAllowed && context.allowVoice || context.preview))
                 { Status = "Voice cue skipped: Demo Lab conversation owns speech."; continue; }
                 StartCoroutine(PlayAt(cue, context, token));
