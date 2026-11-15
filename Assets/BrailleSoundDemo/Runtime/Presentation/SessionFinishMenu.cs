@@ -15,21 +15,27 @@ namespace BrailleSoundDemo.Presentation
         // Kept independent of the tracking SDK so input ownership can be checked offline.
         public struct ActionPointer
         {
-            bool released, ownsPress;
-            float releaseUntil;
+            bool released, ownsPress, waitingForTarget;
+            float releaseUntil, targetDeadline;
             public bool Pressed { get; private set; }
+            public bool BeganPress { get; private set; }
             public bool BlocksCapture(float now) => ownsPress || now < releaseUntil;
 
             public bool Observe(float now, bool valid, bool nativePinch, float strength, bool overAction)
             {
                 bool pressed = valid && (nativePinch || strength >= (Pressed ? .4f : .75f));
                 bool rising = valid && released && pressed && !Pressed;
+                BeganPress = rising;
+                if (rising) { waitingForTarget = true; targetDeadline = now + .35f; }
+                if (!valid || !pressed || now > targetDeadline) waitingForTarget = false;
                 if (ownsPress && !pressed) { ownsPress = false; releaseUntil = now + .2f; }
                 if (!valid) released = false;
                 else if (!pressed) released = true;
                 Pressed = pressed;
-                bool clicked = rising && overAction;
-                if (clicked) ownsPress = true;
+                // The hand ray may settle just after the pinch edge. Give this
+                // single pinch a brief chance to acquire its own target once.
+                bool clicked = pressed && waitingForTarget && overAction;
+                if (clicked) { waitingForTarget = false; ownsPress = true; }
                 return clicked;
             }
         }
@@ -242,7 +248,18 @@ namespace BrailleSoundDemo.Presentation
             for (int i = 0; i < rays.Length; i++)
             {
                 bool valid = ReadPointer(i, out var ray, out bool nativePinch, out float strength, out bool inputValid);
-                if (!inputValid) recentTargets[i] = null;
+                if (!inputValid)
+                {
+                    if (recentTargets[i] != null && i < hands.Length && hands[i] != null)
+                    {
+                        var hand = hands[i];
+                        Debug.Log("[SessionFinishMenu] Hover input lost pointer=" + i +
+                            " tracked=" + hand.IsTracked + " dataValid=" + hand.IsDataValid +
+                            " systemGesture=" + hand.IsSystemGestureInProgress + " inferred=" + hand.PoseSourceInferred +
+                            " nativePinch=" + hand.GetFingerIsPinching(OVRHand.HandFinger.Index));
+                    }
+                    recentTargets[i] = null;
+                }
                 Button target = null;
                 float distance = float.PositiveInfinity;
                 if (valid)
@@ -264,6 +281,10 @@ namespace BrailleSoundDemo.Presentation
                     pressedTarget = recentTargets[i];
                 bool hasTarget = pressedTarget != null && pressedTarget.hitArea.gameObject.activeInHierarchy;
                 bool clicked = pointers[i].Observe(Time.unscaledTime, inputValid, nativePinch, strength, hasTarget);
+                if (pointers[i].BeganPress)
+                    Debug.Log("[SessionFinishMenu] Pinch began pointer=" + i + " target=" +
+                        (hasTarget ? pressedTarget.action.ToString() : "none") + " rayValid=" + valid +
+                        " nativePinch=" + nativePinch + " strength=" + strength.ToString("F2"));
                 ownsInput |= pointers[i].BlocksCapture(Time.unscaledTime);
                 if (target != null)
                 {
@@ -274,7 +295,8 @@ namespace BrailleSoundDemo.Presentation
                 if (clicked && pressedTarget.enabled && selected == Action.None)
                 {
                     selected = pressedTarget.action;
-                    Debug.Log("[SessionFinishMenu] Selected " + selected + " pointer=" + i);
+                    Debug.Log("[SessionFinishMenu] Selected " + selected + " pointer=" + i +
+                        " targetSettledAfterPinch=" + !pointers[i].BeganPress);
                 }
             }
             // Keep the capture gate closed through the release frame. The capture

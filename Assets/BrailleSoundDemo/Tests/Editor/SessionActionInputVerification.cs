@@ -39,6 +39,22 @@ namespace BrailleSoundDemo.Tests
             Require(!pointer.Observe(6, false, true, 1, true) &&
                 !pointer.Observe(6.1f, true, true, 1, true),
                 "Lost tracking and a still-held pinch on reacquisition cannot click.");
+
+            var settling = new SessionFinishMenu.ActionPointer();
+            settling.Observe(7, true, false, 0, false);
+            Require(!settling.Observe(7.1f, true, true, 1, false), "An untargeted pinch does not click immediately.");
+            Require(settling.Observe(7.2f, true, true, 1, true),
+                "One pinch clicks when its own ray reaches the button just after the pinch edge.");
+            Require(!settling.Observe(7.25f, true, true, 1, true), "The settled target cannot dispatch twice.");
+            settling.Observe(8, true, false, 0, false);
+            settling.Observe(8.1f, true, true, 1, false);
+            Require(!settling.Observe(8.5f, true, true, 1, true),
+                "Moving a held pinch to a button after the short target window cannot click.");
+            settling.Observe(9, true, false, 0, false);
+            settling.Observe(9.1f, true, true, 1, false);
+            settling.Observe(9.15f, false, true, 1, false);
+            Require(!settling.Observe(9.2f, true, true, 1, true),
+                "Tracking loss cancels a pinch waiting for its target.");
             UnityEngine.Debug.Log("SESSION_ACTION_INPUT_VERIFICATION_OK");
         }
 
