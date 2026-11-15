@@ -155,6 +155,14 @@ namespace BrailleSoundDemo
             }
             if(response==null) { Failed(job,"request_unavailable");yield break; }
             if(response.status=="failed") { Failed(job,string.IsNullOrEmpty(response.code)?"generation_failed":response.code);yield break; }
+            if(response.code=="video_loading_only")
+            {
+                SetStatus(job,"Loading your animation...\nDouble pinch to go home.","animation_generating");
+                // The Mac has explicitly selected a presentation-only demo. No polling,
+                // generated video or two-minute completion announcement in this mode.
+                while(Current(job)) yield return null;
+                yield break;
+            }
             SetStatus(job,AnimationWaitingMessage,"animation_generating");
             yield return Announce(job);
             if(!Waiting(job)) { TimeoutIfNeeded(job);yield break; }

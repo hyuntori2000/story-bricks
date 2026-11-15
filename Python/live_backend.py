@@ -1022,7 +1022,8 @@ def main():
                                     lambda word: upstream.generate_structured("sound_effect", word_effects.PLAN_INSTRUCTIONS, {"word": word}))
         workspace_directory = PROJECT / "runtime" / "workspaces"
         images = WordImageJobs(ComfyCardProvider(settings.comfy_api_key, settings.comfy_base_url), workspace_directory)
-        videos = StoryVideoJobs(ComfyVideoProvider(settings.comfy_api_key, settings.comfy_base_url), workspace_directory)
+        videos = StoryVideoJobs(ComfyVideoProvider(settings.comfy_api_key, settings.comfy_base_url), workspace_directory,
+                                loading_only=(PROJECT / "runtime" / "video-loading-only.flag").is_file())
         backend = Backend(upstream, HERE / "runtime/audio", prompts, effects=effects,
                           workspace_directory=workspace_directory, image_jobs=images, video_jobs=videos)
         server = make_server(backend, args.port)

@@ -369,8 +369,9 @@ class StoryVideoJobs:
     """One film worker; new films have two scenes, saved older plans resume as-is."""
     card_wait_seconds = 120
 
-    def __init__(self, provider, workspace_directory, *, ffmpeg=None, preview=True):
+    def __init__(self, provider, workspace_directory, *, ffmpeg=None, preview=True, loading_only=False):
         self.provider, self.root = provider, Path(workspace_directory).resolve()
+        self.loading_only = bool(loading_only)
         self.ffmpeg, self.preview = find_ffmpeg(ffmpeg), bool(preview)
         self.lock, self.stop = threading.RLock(), threading.Event()
         self.queue = queue.Queue(maxsize=2)
@@ -383,6 +384,7 @@ class StoryVideoJobs:
         with self.lock:
             return {"storyVideosConfigured": bool(self.provider and self.provider.configured and self.ffmpeg),
                     "storyVideosProvider": "Comfy Cloud", "storyVideosWorkers": 1,
+                    "storyVideosLoadingOnly": self.loading_only,
                     "storyVideosPending": len(self.active), "storyVideosQueueLimit": 2,
                     "ffmpegAvailable": bool(self.ffmpeg)}
 
@@ -416,6 +418,8 @@ class StoryVideoJobs:
         result.update(shotsTotal=len(job.get("shots", [])), shotsReady=sum(x["status"] == "ready" for x in job.get("shots", [])),
                       elapsedSeconds=round(max(0, job.get("finishedAtUnix", time.time()) - job["createdAtUnix"]), 1),
                       previewOpened=bool(job.get("previewOpened")))
+        if job.get("code") == "video_loading_only":
+            result.update(shotsTotal=0, shotsReady=0)
         if request_id is not None:
             result["requestId"] = request_id
         return result
@@ -454,7 +458,9 @@ class StoryVideoJobs:
                        createdAtUnix=time.time(), createdAtUtc=now(), previewOpened=False, previewAttempted=False, shots=[])
             self.jobs[job_id], self.paths[job_id] = job, self._path(owner, job_id)
             try:
-                if not self.ffmpeg:
+                if self.loading_only:
+                    self._state(job, "running", "video_loading_only")
+                elif not self.ffmpeg:
                     self._state(job, "failed", "video_ffmpeg_missing", "Install the local video encoder before creating an animation.")
                 elif not self.provider or not self.provider.configured:
                     self._state(job, "failed", "comfy_key_missing", "Story videos are not configured on the Mac backend.")
@@ -510,7 +516,7 @@ class StoryVideoJobs:
                     if job.get("status") not in ("queued", "running", "ready", "failed") or not isinstance(job.get("shots"), list):
                         continue
                     self.jobs[job_id], self.paths[job_id] = job, path
-                    if job["status"] in ("queued", "running"):
+                    if job["status"] in ("queued", "running") and job.get("code") != "video_loading_only":
                         if any(shot.get("submitStarted") and not shot.get("promptId") for shot in job["shots"]):
                             self._state(job, "failed", "video_submit_interrupted", "A prior paid shot outcome is unknown; it will not be submitted again.")
                         elif len(self.active) >= 2:
@@ -578,6 +584,11 @@ class StoryVideoJobs:
                 job["previewCode"] = "preview_open_failed"; self._save(job)
 
     def _run(self, job):
+        # Presentation-only demo: no card upload, provider submit/poll, download or encoding.
+        if self.loading_only:
+            with self.lock:
+                self._state(job, "running", "video_loading_only")
+            return
         if not self.ffmpeg:
             raise VideoError("video_ffmpeg_missing", "The local video encoder is unavailable.", 503)
         owner, identity = _input(job)
