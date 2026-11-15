@@ -235,7 +235,8 @@ namespace BrailleSoundDemo.PhysicalStory
 
         bool CanCapture()
         {
-            if(!initialized || !isActiveAndEnabled || !experienceActive || presentationInputBlocked || finishMenuOpen || resetting || awaitingFrame || awaitingRecognition || table == null ||
+            if(!initialized || !isActiveAndEnabled || !experienceActive || presentationInputBlocked || finishMenuOpen ||
+                (storyVideos!=null && storyVideos.ReservesDoublePinch) || resetting || awaitingFrame || awaitingRecognition || table == null ||
                 !table.RequiredPermissionsGranted || !table.HeadTrackingValid) return false;
             return true;
         }

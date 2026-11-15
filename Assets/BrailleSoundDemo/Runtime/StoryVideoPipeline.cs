@@ -14,6 +14,7 @@ namespace BrailleSoundDemo
     public sealed class StoryVideoPipeline : MonoBehaviour
     {
         public const long MaximumVideoBytes=128L*1024*1024;
+        public const string AnimationWaitingMessage="Come back in about two minutes to watch your animation. Double pinch to go home. You can find it under See previous story.";
         const int MaximumStatusBytes=64*1024;
         const double JobTimeoutSeconds=2400;
 
@@ -60,6 +61,8 @@ namespace BrailleSoundDemo
         string savedVideoPath;
         bool playbackRunning;
         public string Stage { get; private set; } = "idle";
+        public bool ReservesDoublePinch => Stage=="animation_requested" || Stage=="animation_generating" || Stage=="animation_ready";
+        public bool CanDoublePinchHome => ReservesDoublePinch && Stage!="animation_requested";
         public string Status { get; private set; }="Animation idle.";
         public event Action<string> VideoReady;
         public event Action<string,string> PresentationChanged;
@@ -133,10 +136,8 @@ namespace BrailleSoundDemo
 
         IEnumerator Generate(Job job)
         {
-            SetStatus(job,"Let's turn your story into an animation.","animation_requested");
-            yield return Announce(job);
-            if(!Waiting(job)) { TimeoutIfNeeded(job);yield break; }
-            SetStatus(job,"Making your animation...","animation_generating");
+            // Confirm durable Mac ownership before inviting the user to leave.
+            SetStatus(job,"Starting your animation...","animation_requested");
             byte[] body=Encoding.UTF8.GetBytes(JsonUtility.ToJson(job.identity));
             Response response=null;
             for(int attempt=0;attempt<3 && Waiting(job);attempt++)
@@ -153,6 +154,10 @@ namespace BrailleSoundDemo
                 yield return Delay(job,.5*(attempt+1));
             }
             if(response==null) { Failed(job,"request_unavailable");yield break; }
+            if(response.status=="failed") { Failed(job,string.IsNullOrEmpty(response.code)?"generation_failed":response.code);yield break; }
+            SetStatus(job,AnimationWaitingMessage,"animation_generating");
+            yield return Announce(job);
+            if(!Waiting(job)) { TimeoutIfNeeded(job);yield break; }
             string query="?workspaceId="+Uri.EscapeDataString(job.identity.workspaceId)+
                 "&experienceSessionId="+Uri.EscapeDataString(job.identity.experienceSessionId)+
                 "&sessionId="+Uri.EscapeDataString(job.identity.sessionId)+
@@ -168,7 +173,7 @@ namespace BrailleSoundDemo
                     yield return DownloadAndPlay(job,response.videoPath);
                     yield break;
                 }
-                SetStatus(job,response.shotsTotal>0 ? "Making your animation... "+response.shotsReady+" of "+response.shotsTotal+" scenes ready." : "Making your animation...");
+                SetStatus(job,AnimationWaitingMessage+(response.shotsTotal>0 ? "\n"+response.shotsReady+" of "+response.shotsTotal+" scenes ready." : ""));
                 yield return Delay(job,2);
                 if(!Waiting(job)) break;
                 HttpReply reply=null;

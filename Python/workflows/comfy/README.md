@@ -43,8 +43,9 @@ and MP4 output; node 117 is `SaveVideo`. The film adapter changes only the scene
 prompt, duration, seed, output prefix and up to five `LoadImage` reference inputs.
 It reads only node 117's final MP4 from its `images` output list.
 
-The Unity client starts the film after the story narration and animation invitation
-finish. The Mac validates that the requested text/audio match a successful owned
+The Unity client requests the film after story narration finishes. Once the Mac
+accepts the job, Unity plays the invitation to return in about two minutes; a
+double pinch on that waiting screen returns Home without a photo or backend cancellation. The Mac validates that the requested text/audio match a successful owned
 story archive. Its saved seven sentences become exactly two chronological scenes,
 grouped 4/3, with each shot lasting 6–10 seconds. The full story supplies continuity;
 each shot is restricted to its own passage. There is no additional story-writing

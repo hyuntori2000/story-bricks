@@ -34,7 +34,7 @@ The landing screen offers three routes with different purposes.
 | **Create Your World** | Builds real words and contributes spoken ideas. | Captures and recognizes blocks, guides a conversation, generates word media, narrates a story, and produces a two-scene film. |
 | **See previous story** | Selects an already completed story film. | Loads the Mac's saved library and replays the selected film in VR without generating it again. |
 
-Judy provides a consistent presentation for an audience; Create Your World demonstrates the live system with the participant's own words. These routes have separate behavior: Judy does not submit recognition requests, record answers or run the live generation pipeline. Switching into Create Your World stops the authored playback.
+Judy provides a consistent presentation for an audience; Create Your World demonstrates the live system with the participant's own words. These routes have separate behavior: Judy does not submit recognition requests, record answers or run the live generation pipeline. Switching into Create Your World stops the authored playback. Double pinching while viewing Judy returns Home; selecting Judy again restarts the authored visuals, narration and effects from the beginning.
 
 ### A typical live session
 
@@ -45,7 +45,7 @@ Judy provides a consistent presentation for an audience; Create Your World demon
 5. The narrator asks a short question about the first word. After the narration and ready tone, the participant answers aloud.
 6. The conversation invites a related second word. That word receives spelling and a brief closing, followed by the invitation to keep building or select **Create Story**. Further words start another pair; there is no automatic three- or four-word ending.
 7. **Create Story** uses the accepted words and saved spoken contributions. The narrator reads the resulting story, then announces that animation will be made.
-8. The completed film plays in VR, is saved on the Mac, and opens there for preview. It can later be selected through **See previous story**.
+8. The animation waiting screen invites the participant to come back in about two minutes and double pinch to return Home. This gesture does not capture a photo there. The accepted Mac job continues in the background; completed films can be selected through **See previous story**. Staying in the experience still plays the completed film in VR and opens its saved Mac preview.
 
 Word images and effects arrive independently during this flow. The conversation does not have to wait for every picture to finish generating.
 
@@ -141,7 +141,7 @@ When an image is displayed, the application requests one replay of that word's e
 
 ### A two-scene animated film
 
-After narration and the animation invitation, the Mac validates the requested story against its saved successful story output. The seven sentences are divided chronologically into **two scenes**, covering sentences 1–4 and 5–7.
+After story narration, the Mac validates and accepts the animation request before the app plays its invitation to return in about two minutes. Leaving through the waiting screen therefore does not cancel the accepted backend job. The seven sentences are divided chronologically into **two scenes**, covering sentences 1–4 and 5–7.
 
 The supplied Comfy workflow uses **Seedance 2.5 Draft**, 480p, 16:9, with each shot lasting 6–10 seconds. It uses the story's saved word-card images as references; at least one usable card is required. Both shots are submitted before waiting, then polled concurrently. Actual rendering concurrency depends on the provider.
 

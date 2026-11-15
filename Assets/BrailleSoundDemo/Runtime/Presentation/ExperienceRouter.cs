@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using BrailleSoundDemo.PhysicalStory;
+using BrailleSoundDemo.TableDepthTest;
 using UnityEngine;
 
 namespace BrailleSoundDemo.Presentation
 {
     /// <summary>Connects the supplied UX to either authored Judy playback or the real Create World session.</summary>
     [DisallowMultipleComponent]
+    [DefaultExecutionOrder(200)]
     public sealed class ExperienceRouter : MonoBehaviour
     {
         PhysicalStoryCoordinator core;
@@ -17,6 +19,10 @@ namespace BrailleSoundDemo.Presentation
         StoryVideoPipeline videos;
         StoryLibraryBrowser library;
         Transform head;
+        OVRCameraRig cameraRig;
+        readonly DoublePinchTimerPolicy homeGesture=new DoublePinchTimerPolicy();
+        readonly OVRHand[] homeHands=new OVRHand[2];
+        string homeGestureContext="";
         readonly HashSet<string> displayedWords=new HashSet<string>(StringComparer.Ordinal);
         string experience,route="",lastCaption="",lastVideoStage="idle";
         bool changingRoute,applicationPaused,applicationFocused=true;
@@ -34,6 +40,7 @@ namespace BrailleSoundDemo.Presentation
         {
             if(core!=null) return;
             core=owner;
+            cameraRig=rig;
             head=rig.centerEyeAnchor;
             var prefab=Resources.Load<GameObject>("StoryBricks/View");
             if(prefab==null)
@@ -134,8 +141,34 @@ namespace BrailleSoundDemo.Presentation
             if(view==null || changingRoute) return;
             view.StopJudy();
             if(core.ExperienceActive) core.EndSessionToStart();
-            else BeginOnboarding(false);
+            else { BeginOnboarding(false);OnOnboardingReady(); }
         }
+
+        void Update()
+        {
+            string context=route=="judy" ? "judy" :
+                Active("demo") && videos!=null && videos.CanDoublePinchHome ? experience : "";
+            if(context!=homeGestureContext)
+            { homeGesture.Reset();homeGestureContext=context; }
+            if(string.IsNullOrEmpty(context) || changingRoute || applicationPaused || !applicationFocused || cameraRig==null)
+            { homeGesture.Reset();return; }
+            if(homeHands[0]==null) homeHands[0]=cameraRig.leftHandAnchor.GetComponentInChildren<OVRHand>(true);
+            if(homeHands[1]==null) homeHands[1]=cameraRig.rightHandAnchor.GetComponentInChildren<OVRHand>(true);
+            bool left=HomeHandTracked(homeHands[0]),right=HomeHandTracked(homeHands[1]);
+            var step=homeGesture.Observe(Time.realtimeSinceStartupAsDouble,true,true,
+                left,left && homeHands[0].GetFingerIsPinching(OVRHand.HandFinger.Index),
+                right,right && homeHands[1].GetFingerIsPinching(OVRHand.HandFinger.Index),true);
+            if(!step.ArmedNow) return;
+            // Consume only the gesture decision, never its photo countdown.
+            homeGesture.Reset();homeGestureContext="";
+            Debug.Log("[Experience] Double pinch returns home from "+route+"; no capture.");
+            ReturnToMenu();
+        }
+
+        static bool HomeHandTracked(OVRHand hand)=>hand!=null && hand.isActiveAndEnabled && hand.IsTracked &&
+            hand.IsDataValid && !hand.IsSystemGestureInProgress && !hand.PoseSourceInferred &&
+            hand.GetFingerConfidence(OVRHand.HandFinger.Index)==OVRHand.TrackingConfidence.High &&
+            hand.GetFingerConfidence(OVRHand.HandFinger.Thumb)==OVRHand.TrackingConfidence.High;
 
         public void SelectPreviousStories()
         {
