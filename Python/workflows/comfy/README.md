@@ -45,8 +45,8 @@ It reads only node 117's final MP4 from its `images` output list.
 
 The Unity client starts the film after the story narration and animation invitation
 finish. The Mac validates that the requested text/audio match a successful owned
-story archive. Its saved seven sentences become four chronological scenes, grouped
-2/2/2/1, with each shot lasting 6–10 seconds. The full story supplies continuity;
+story archive. Its saved seven sentences become exactly two chronological scenes,
+grouped 4/3, with each shot lasting 6–10 seconds. The full story supplies continuity;
 each shot is restricted to its own passage. There is no additional story-writing
 API call or replacement plot.
 
@@ -54,8 +54,11 @@ References come from that story's captured groups and conversation session. The
 adapter waits up to 120 seconds for pending cards, uploads the available saved
 PNGs, and never regenerates them. The reference-video node requires at least one
 usable card, so an experience with no ready cards fails before paid video submits.
-Shots are submitted once and polled concurrently, with at most four polls. One
-film worker and two active film slots stay independent of voice and word images.
+Both shots are submitted once before waiting and polled concurrently. Actual render
+concurrency depends on the Comfy account and service queue. Existing saved plans
+resume unchanged, including older four-shot jobs; they are never resubmitted just
+to change the scene count. One film worker and two active film slots stay independent
+of voice and word images.
 
 Each experience stores `videos/<job-id>/job.json`, the shot MP4s and `story.mp4`.
 Request aliases deduplicate the same archived story. A durable marker precedes

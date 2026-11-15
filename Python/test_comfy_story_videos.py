@@ -32,7 +32,7 @@ def query(value):
 
 
 def fake_join(ffmpeg, paths, destination):
-    assert len(paths) == 4 and all(path.is_file() for path in paths)
+    assert len(paths) == 2 and all(path.is_file() for path in paths)
     destination.write_bytes(MP4)
 
 
@@ -105,8 +105,8 @@ class FilmJobsTests(unittest.TestCase):
         provider.release.set()
         result = self.done(manager)
         self.assertEqual(result["status"], "ready")
-        self.assertEqual((result["shotsTotal"], result["shotsReady"]), (4, 4))
-        self.assertEqual(len(provider.submits), 4)
+        self.assertEqual((result["shotsTotal"], result["shotsReady"]), (2, 2))
+        self.assertEqual(len(provider.submits), 2)
         self.assertEqual(len(provider.uploads), 1)
         self.assertIsInstance(manager.video_file(result["videoPath"]), Path)
         self.assertEqual(manager.video_file(result["videoPath"]).read_bytes(), MP4)
@@ -175,7 +175,7 @@ class FilmJobsTests(unittest.TestCase):
         recovered, new_provider = self.manager()
         self.assertEqual(self.done(recovered)["status"], "ready")
         self.assertEqual(new_provider.submits, [])
-        self.assertEqual(len(new_provider.finishes), 4)
+        self.assertEqual(len(new_provider.finishes), 2)
         self.assertEqual(new_provider.uploads, [])
 
     def test_preview_failure_keeps_film_ready_and_is_attempted_once(self):
@@ -194,11 +194,25 @@ class ProviderTests(unittest.TestCase):
     def test_plan_covers_all_sentences_once_and_scopes_the_scene(self):
         cards = [{"word": "CAT", "reference": "cat.png"}, {"word": "KITE", "reference": "kite.png"}]
         shots = video.plan_shots(STORY, [], cards)
-        self.assertEqual(len(shots), 4)
-        self.assertEqual([s["duration"] for s in shots], [6, 6, 6, 6])
+        self.assertEqual(len(shots), 2)
+        self.assertTrue(all(6 <= s["duration"] <= 10 for s in shots))
+        passages = [s["prompt"].split("Animate only this chronological scene: ")[1].split("\n")[0] for s in shots]
+        self.assertEqual(passages, ["A cat woke up. She wanted to fly. A kite came near. She held its string.",
+                                    "They rose above trees. The cat smiled softly. They landed safely."])
         for sentence in STORY.split(". "):
             self.assertEqual(sum(sentence.rstrip(".") in s["prompt"].split("Animate only this chronological scene: ")[1] for s in shots), 1)
         self.assertTrue(all(1 <= len(s["refs"]) <= 5 for s in shots))
+        sentences = STORY.split(". ")
+        for count in range(2, 9):
+            story = ". ".join(sentences[:count]).rstrip(".") + "."
+            if count == 8:
+                story += " A bird waved."
+            with self.subTest(sentences=count):
+                plan = video.plan_shots(story, [], cards)
+                self.assertEqual(len(plan), 2)
+                self.assertEqual(" ".join(s["prompt"].split("Animate only this chronological scene: ")[1].split("\n")[0] for s in plan), story)
+        with self.assertRaises(video.VideoError):
+            video.plan_shots("A cat woke up.", [], cards)
 
     def test_submit_preserves_supplied_model_and_only_extracts_final_video(self):
         provider = video.ComfyVideoProvider("fake-test-key")

@@ -232,13 +232,16 @@ class ComfyVideoProvider(ComfyCardProvider):
 
 def plan_shots(story, words, cards):
     sentences = [part.strip() for part in re.findall(r"[^.!?]+[.!?]", story)]
-    if not 1 <= len(sentences) <= 8 or " ".join(sentences) != " ".join(story.split()):
+    if not 2 <= len(sentences) <= 8 or " ".join(sentences) != " ".join(story.split()):
         raise VideoError("video_story_format", "The saved story cannot be divided into animation scenes.", 409)
     if not cards:
         raise VideoError("video_cards_unavailable", "No completed word card is available for this story.", 409)
+    # Always submit two scenes. The seven-sentence story is covered in order as
+    # four sentences followed by three, without dropping or repeating a passage.
+    midpoint = (len(sentences) + 1) // 2
     shots = []
-    for start in range(0, len(sentences), 2):
-        passage = " ".join(sentences[start:start + 2])
+    for group in (sentences[:midpoint], sentences[midpoint:]):
+        passage = " ".join(group)
         relevant = [card for card in cards if re.search(r"\b" + re.escape(card["word"].rstrip(".")) + r"\b", passage, re.I)]
         selected = []
         # Keep the first story ingredient visually consistent, then favor this scene.
@@ -303,7 +306,7 @@ def join_videos(ffmpeg, paths, destination):
 
 
 class StoryVideoJobs:
-    """One film worker with at most two queued/running films and four shot polls."""
+    """One film worker; new films have two scenes, saved older plans resume as-is."""
     card_wait_seconds = 120
 
     def __init__(self, provider, workspace_directory, *, ffmpeg=None, preview=True):
