@@ -1,4 +1,4 @@
-# Words to Worlds — shared functions
+# Story Bricks — shared functions
 
 This repository shares the working functions. The designers build their own UX and dashboard.
 
