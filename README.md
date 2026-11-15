@@ -22,7 +22,9 @@ Create World uses the shared double-pinch capture, three-second wait and cropped
 
 The physical Quest app builds in **Hands Only** mode with high-frequency tracking and both hand inputs enabled. Controllers are not required. Every build reapplies hand, passthrough, camera and scene capabilities, including when opening an existing scene. Headset sleep, tracking loss or a system permission dialog can still pause tracking.
 
-The app opens into the supplied watercolour UX with **Create World** available and **Judy — Coming soon** disabled. Create World's existing small **Finish** button opens an English dialog with **Create Story**, **End Session** and **Cancel**. Create Story calls the real story backend using accepted words (including the conversation queue) and only answers already saved; unfinished speech is discarded. Story completion preserves the experience for the next stage; it does not return to the menu. Create World video playback is disabled until a real animation provider is integrated. At least one accepted word is required. End Session cancels local requests/playback and clears the active session back to the selection menu without deleting archived captures. Cancel returns to the session. Repeated Create Story clicks cannot submit a second story while one is running; a failed manual request keeps saved progress for retry. Menu pinches do not trigger the capture gesture.
+The app opens into the supplied watercolour **selection menu**, with **Create World** available and **Judy — Coming soon** disabled. Selecting Create World closes that view and returns to the original capture, dialogue and word-box experience with the existing small Finish button. The imported word tags, captions, busy/ready panels and authored story screens are not shown during Create World.
+
+The existing **Finish** button opens an English dialog with **Create Story**, **End Session** and **Cancel**. Create Story calls the real story backend using accepted words (including the conversation queue) and only answers already saved; unfinished speech is discarded. Story completion preserves the experience and records the next stage; it does not open an imported story screen or return to the menu. Create World video playback is disabled until a real animation provider is integrated. At least one accepted word is required. End Session cancels local requests/playback and clears the active session back to the selection menu without deleting archived captures. Cancel returns to the session. Repeated Create Story clicks cannot submit a second story while one is running; a failed manual request keeps saved progress for retry. Menu pinches do not trigger the capture gesture.
 
 The future Judy flow is **select Judy → play one real assigned, approximately 30-second video → invite the viewer to try Create World**. This video playback and invitation flow is planned, not implemented. The placeholder does not play a sample video or start the core word-building functions.
 
@@ -50,6 +52,8 @@ bash Tools/install-physical-story.sh YOUR_QUEST_SERIAL
 ```
 
 These commands build the existing physical scene and load the designer-owned presentation prefab. They do not replace the rig or regenerate the saved scene. The one-time presentation importer preserves an already committed prefab on subsequent builds. See [designer presentation setup](Assets/DesignerWorkspace/StoryBricks/README.md).
+
+Launch the main application, Android package **`org.braillelab.storydemo`**. The separate **`com.storybricks.parentui`** application is the original designer UX prototype; its scripted buttons and sample story flow are not the live Create World integration. The install script above launches the main application.
 
 The scripts support `UNITY_EDITOR` and `ADB` overrides. Designers do not need API keys to edit prefabs or prepared media. The OCR source is pinned in `Config/recognition-source.json` and installed under ignored `External/LEGO_OCR`.
 

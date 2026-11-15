@@ -48,9 +48,7 @@ namespace BrailleSoundDemo.Presentation
             view.CreateWorldRequested+=SelectCreateWorld;
             core.SessionEnded+=OnSessionEnded;
             core.Flow.Changed+=OnFlowChanged;
-            core.Flow.StoryOutputReady+=OnLiveStoryReady;
             core.Flow.StoryNarrationCompleted+=OnLiveNarrationCompleted;
-            PresentationEvents.Published+=OnPresentation;
             core.ShowExperienceMenu();
             view.ShowMenu();
         }
@@ -63,6 +61,8 @@ namespace BrailleSoundDemo.Presentation
             {
                 if(!core.BeginExperience("demo")) return;
                 experience=core.ExperienceSessionId;
+                // Close the imported menu. Create World keeps the existing physical
+                // capture, progress hint and Finish UI, without the prototype story screens.
                 view.BeginRoute("demo");
                 core.SessionStore?.SetStage("building");
                 Debug.Log("[Experience] Selected demo session="+experience);
@@ -73,51 +73,24 @@ namespace BrailleSoundDemo.Presentation
         bool Active(string workspace)=>!changingRoute && core!=null && core.ExperienceActive &&
             core.WorkspaceId==workspace && core.ExperienceSessionId==experience;
 
-        void OnPresentation(PresentationEventContext evt)
-        {
-            if(evt==null || evt.workspaceId!="demo" || !Active("demo") || evt.sessionId!=experience) return;
-            if(evt.eventName=="word.accepted" && evt.word!=".") view.ShowWord(evt.word);
-        }
-
         void OnFlowChanged()
         {
             if(!Active("demo")) return;
             var flow=core.Flow;
-            view.SetListening(flow.State==ConversationState.Listening && flow.IsRecording);
             switch(flow.State)
             {
-                case ConversationState.RequestingQuestion:
-                    view.SetBusy(true,"Creating your question..."); break;
-                case ConversationState.Asking:
-                    view.SetBusy(false); view.ShowCaption(flow.CurrentPrompt); break;
-                case ConversationState.PreparingAnswer:
-                    view.SetBusy(false); view.ShowCaption("Listen for the tone, then tell your story."); break;
-                case ConversationState.ReceivingAnswer:
-                    view.SetBusy(true,"Saving your answer..."); break;
                 case ConversationState.RequestingStory:
-                    core.SessionStore?.SetStage("story_generating");
-                    view.SetBusy(true,"Creating your story..."); break;
+                    core.SessionStore?.SetStage("story_generating"); break;
                 case ConversationState.Story:
-                    core.SessionStore?.SetStage("story_playing");
-                    view.SetBusy(false); view.ShowCaption(flow.CurrentPrompt); break;
+                    core.SessionStore?.SetStage("story_playing"); break;
                 case ConversationState.Error:
-                    core.SessionStore?.SetStage("error");
-                    view.SetBusy(false); view.ShowCaption("Your progress is saved. Use Finish to try creating your story again."); break;
-                case ConversationState.Silent:
-                    view.SetBusy(false); view.ShowCaption("What comes next?"); break;
+                    core.SessionStore?.SetStage("error"); break;
             }
-        }
-        void OnLiveStoryReady(StoryOutput output)
-        {
-            if(!Active("demo") || output.experienceSessionId!=experience) return;
-            // Available for the future video generator. Never start a placeholder video here.
-            view.ShowStoryReady(output.storyText);
         }
         void OnLiveNarrationCompleted(StoryOutput output)
         {
             if(!Active("demo") || output.experienceSessionId!=experience) return;
             core.SessionStore?.SetStage("next_stage");
-            view.ShowNextStage("Your story is saved.");
         }
         public void RestartSelectedExperience()
         {
@@ -130,14 +103,12 @@ namespace BrailleSoundDemo.Presentation
         }
         void OnDestroy()
         {
-            PresentationEvents.Published-=OnPresentation;
             if(core!=null)
             {
                 core.SessionEnded-=OnSessionEnded;
                 if(core.Flow!=null)
                 {
                     core.Flow.Changed-=OnFlowChanged;
-                    core.Flow.StoryOutputReady-=OnLiveStoryReady;
                     core.Flow.StoryNarrationCompleted-=OnLiveNarrationCompleted;
                 }
             }
