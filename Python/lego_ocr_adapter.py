@@ -2,8 +2,9 @@
 
 The upstream calibrated reader needs known full-face corners. This live adapter
 instead uses its RapidOCR dependency's automatic text/character boxes. These are
-printed-label bounds, NOT physical brick boundaries. No seam detector, dot reader,
-expected word, color mapping or manually specified image corners are used.
+printed-label bounds, NOT physical brick boundaries. Missing printed-period
+regions are proposed from the label row and checked by the unchanged upstream
+period reader. No expected word or manually specified image corners are used.
 """
 from functools import lru_cache
 import os
@@ -25,10 +26,12 @@ if str(SOURCE) not in sys.path:
 from braille_geometry import validate_layout, project  # noqa: E402
 from ocr_label_rules import normalize_label  # noqa: E402
 from ocr_reader import DECODER_ID, MIN_OCR_SCORE  # noqa: E402
+from printed_period_bridge import propose_period_tokens  # noqa: E402
 
-METHOD = "RapidOCR automatic text boxes + LEGO_OCR printed-label rules"
-PROVENANCE = {"algorithm_id": "automatic_ppocrv4_labels_v1", "decoder_id": DECODER_ID,
+METHOD = "RapidOCR automatic text boxes + LEGO_OCR label and printed-period readers"
+PROVENANCE = {"algorithm_id": "automatic_ppocrv4_labels_period_v2", "decoder_id": DECODER_ID,
               "boundary_validator": "LEGO_OCR.braille_geometry.validate_layout",
+              "period_verifier": "LEGO_OCR.period_detector.detect_period",
               "geometry_kind": "printed_label"}
 _ENGINE_LOCK = threading.Lock()
 BOUNDARY_MARGIN_PIXELS = 1.0
@@ -134,7 +137,7 @@ def _read_crop(crop, selection, started):
     h, w = crop.shape[:2]
     with _ENGINE_LOCK:
         # Keep uncertain text in the response so a weak letter cannot silently
-        # disappear from an otherwise accepted word. Apply upstream's .5 gate below.
+        # disappear from an otherwise accepted word. Apply upstream's score gate below.
         records, elapsed = get_engine()(crop, use_det=True, use_cls=False, use_rec=True,
                                        return_word_box=True, text_score=0.0)
     diagnostics = {"wholeBrickBoundaryChecked": False, "boundaryKind": "printed_label",
@@ -202,6 +205,16 @@ def _read_crop(crop, selection, started):
     if invalid:
         diagnostics["unreadLabels"] = [{"text": t["raw"], "score": t["score"]} for t in invalid]
         return _retry("uncertain_printed_label", "A printed label is unclear. Use letters A–Z and periods, then capture again.", started, diagnostics)
+    # Automatic text detection can omit a tiny printed dot entirely. Supply its
+    # label ROI to the original period reader instead of accepting only letters.
+    periods, period_diagnostics = propose_period_tokens(crop, selection, selected)
+    diagnostics["printedPeriodBridge"] = period_diagnostics
+    if period_diagnostics.get("reason") in ("ambiguous_printed_period", "too_many_period_candidates"):
+        return _retry("uncertain_printed_period", "The trailing period is unclear. Capture again.", started, diagnostics)
+    selected.extend(periods)
+    diagnostics["insideLabels"] = len(selected)
+    if len(selected) > 32:
+        return _retry("too_many_labels", "Use one row of one to 32 labels.", started, diagnostics)
     for token in selected:
         token["readingQuad"] = project(token["quad"], transform)
     selected.sort(key=lambda t: float(t["readingQuad"][:, 0].mean()))
@@ -223,7 +236,10 @@ def _read_crop(crop, selection, started):
               "value": t["value"], "letter_candidate": t["value"] if t["value"] != "." else None,
               "punctuation_candidate": "." if t["value"] == "." else None,
               "raw_ocr_text": t["raw"], "raw_ocr_score": t["score"], "score": t["score"],
-              "reason": "recognized", "source": "ocr"} for i, t in enumerate(selected)]
+              "reason": "isolated_filled_printed_dot" if t.get("source") == "printed_period_shape" else "recognized",
+              "source": t.get("source", "ocr"),
+              **({"period_diagnostics": t["period_diagnostics"]} if "period_diagnostics" in t else {})}
+             for i, t in enumerate(selected)]
     points = np.concatenate([t["quad"] for t in selected])
     center = (points.min(axis=0) + points.max(axis=0)) * .5
     word = "".join(letters)

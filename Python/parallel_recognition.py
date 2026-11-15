@@ -28,7 +28,7 @@ PIN = json.loads((PROJECT / "Config/recognition-source.json").read_text())
 METHOD = "parallel_first_accepted_word_v1"
 PROVENANCE = {"algorithm_id": METHOD, "upstream_commit": PIN["commit"],
               "ocr_reader": "LEGO_OCR.CalibratedOCRReader",
-              "ocr_geometry_fallback": "automatic text boxes with upstream OCR model and label rules",
+              "ocr_geometry_fallback": "automatic labels with upstream OCR and printed-period validation",
               "braille_reader": "LEGO_OCR.BrailleReader",
               "ocr_min_score": MIN_OCR_SCORE,
               "selection_policy": "first_complete_word", "cancel_loser": False,
@@ -114,7 +114,8 @@ def read_ocr(crop, context):
         payload = automatic["result"]
         layout = {"version": 1, "image_size": list(crop.shape[1::-1]), "cells": [
             {"row_id": c["row_id"], "slot_index": c["slot_index"], "quad": c["face_polygon"]} for c in payload["cells"]]}
-        payload.update(_layout=layout, readerPath="automatic_labels", geometryIssue=str(error))
+        payload.update(_layout=layout, readerPath="automatic_labels", geometryIssue=str(error),
+                       diagnostics=automatic.get("diagnostics", {}))
         return payload
     payload = CalibratedOCRReader(layout, engine=get_engine()).read(crop)[0]
     payload.update(_layout=layout, readerPath="calibrated_labels")
@@ -138,7 +139,7 @@ def convert(payload, layout, info, source):
     word = "".join(c.get("value") or "?" for c in cells)
     accepted = all(c.get("accepted") is True for c in cells) and bool(re.fullmatch(r"[A-Z.]{1,32}", word)) and (word == "." or bool(re.search(r"[A-Z]", word)))
     keys = ("row_id", "slot_index", "value", "accepted", "reason", "bits", "mask",
-            "raw_ocr_text", "raw_ocr_score", "score", "source", "estimated_source_stud_diameter_px")
+            "raw_ocr_text", "raw_ocr_score", "score", "source", "estimated_source_stud_diameter_px", "period_diagnostics")
     x, y = info["originInFullImage"]["x"], info["originInFullImage"]["y"]
     compact = []
     for c in cells:
@@ -163,6 +164,8 @@ def convert(payload, layout, info, source):
               "cells": [{"quad": c["face_polygon"]} for c in compact],
               "result": {"method": transport_method, "cells": compact, "image_size": info["fullImageSize"]},
               "recognitionInput": info}
+    if "diagnostics" in payload:
+        result["diagnostics"] = payload["diagnostics"]
     if accepted:
         points = np.concatenate([np.asarray(c["face_polygon"]) for c in compact])
         center = (points.min(axis=0) + points.max(axis=0)) * .5
