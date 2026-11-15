@@ -27,6 +27,8 @@ namespace BrailleSoundDemo.Presentation
         static readonly Color DisabledColor = new Color(.09f, .12f, .14f);
         readonly List<Button> buttons = new List<Button>();
         readonly bool[] wasPressed = new bool[4], sawRelease = new bool[4];
+        readonly Button[] recentTargets = new Button[4];
+        readonly float[] recentTargetTimes = new float[4];
         readonly LineRenderer[] rays = new LineRenderer[4];
         readonly OVRHand[] hands = new OVRHand[2];
         MaterialPropertyBlock colors;
@@ -178,11 +180,13 @@ namespace BrailleSoundDemo.Presentation
             foreach (var button in buttons) button.hovered = false;
             for (int i = 0; i < rays.Length; i++)
             {
-                bool valid = ReadPointer(i, out var ray, out bool pressed);
+                bool valid = ReadPointer(i, out var ray, out bool pressed, out bool inputValid);
                 anyPressed |= pressed;
-                bool rising = valid && sawRelease[i] && pressed && !wasPressed[i];
-                if (valid && !pressed) sawRelease[i] = true;
-                if (!valid) sawRelease[i] = false;
+                // Pinching can briefly shift/invalidate the aim ray. Keep the
+                // released hand's recent target without accepting lost tracking.
+                bool rising = inputValid && sawRelease[i] && pressed && !wasPressed[i];
+                if (inputValid && !pressed) sawRelease[i] = true;
+                if (!inputValid) { sawRelease[i] = false; recentTargets[i] = null; }
                 wasPressed[i] = pressed;
                 Button target = null;
                 float distance = float.PositiveInfinity;
@@ -203,9 +207,22 @@ namespace BrailleSoundDemo.Presentation
                     rays[i].SetPosition(1, ray.GetPoint(distance));
                     if (pressed) uiPressHeld = true;
                 }
-                if (target == null) continue;
-                target.hovered = true;
-                if (rising && target.enabled && selected == Action.None) selected = target.action;
+                if (target != null)
+                {
+                    target.hovered = true;
+                    if (target.enabled && inputValid && !pressed)
+                    { recentTargets[i] = target; recentTargetTimes[i] = Time.unscaledTime; }
+                }
+                var pressedTarget = target;
+                if (pressedTarget == null && Time.unscaledTime - recentTargetTimes[i] <= .2f)
+                    pressedTarget = recentTargets[i];
+                if (rising && pressedTarget != null && pressedTarget.enabled &&
+                    pressedTarget.hitArea.gameObject.activeInHierarchy && selected == Action.None)
+                {
+                    selected = pressedTarget.action;
+                    uiPressHeld = true;
+                    Debug.Log("[SessionFinishMenu] Selected " + selected + " pointer=" + i);
+                }
             }
             // Keep the capture gate closed through the release frame. The capture
             // driver then requires a fresh release and two fresh pinches.
@@ -220,23 +237,27 @@ namespace BrailleSoundDemo.Presentation
             }
         }
 
-        bool ReadPointer(int index, out Ray ray, out bool pressed)
+        bool ReadPointer(int index, out Ray ray, out bool pressed, out bool inputValid)
         {
             ray = default;
             pressed = false;
+            inputValid = false;
             Transform pose;
             if (index < 2)
             {
                 var hand = hands[index];
-                if (hand == null || !hand.isActiveAndEnabled || !hand.IsTracked || !hand.IsDataValid) return false;
+                if (hand == null || !hand.isActiveAndEnabled || !hand.IsTracked || !hand.IsDataValid ||
+                    hand.IsSystemGestureInProgress || hand.PoseSourceInferred) return false;
+                inputValid = true;
                 pressed = hand.GetFingerIsPinching(OVRHand.HandFinger.Index);
-                if (!hand.IsPointerPoseValid || hand.IsSystemGestureInProgress || hand.PoseSourceInferred) return false;
+                if (!hand.IsPointerPoseValid) return false;
                 pose = hand.PointerPose;
             }
             else
             {
                 var controller = index == 2 ? OVRInput.Controller.LTouch : OVRInput.Controller.RTouch;
                 if (!OVRInput.GetControllerPositionTracked(controller) || !OVRInput.GetControllerOrientationTracked(controller)) return false;
+                inputValid = true;
                 pressed = OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger, controller);
                 pose = index == 2 ? rig.leftControllerAnchor : rig.rightControllerAnchor;
             }
@@ -264,6 +285,7 @@ namespace BrailleSoundDemo.Presentation
 
         void Activate(Action action)
         {
+            System.Array.Clear(recentTargets, 0, recentTargets.Length);
             coordinator.SetFinishMenuOpen(true);
             releaseGraceUntil = Time.unscaledTime + .2f;
             switch (action)
