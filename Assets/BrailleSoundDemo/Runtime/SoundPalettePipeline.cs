@@ -253,6 +253,7 @@ namespace BrailleSoundDemo
         public void CancelPending()
         {
             ++generation;
+            StopAllCoroutines();
             liveClient?.Cancel();
             pending.Clear();
             StopAllPlayback();

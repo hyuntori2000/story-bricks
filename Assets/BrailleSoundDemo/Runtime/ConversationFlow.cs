@@ -238,7 +238,7 @@ namespace BrailleSoundDemo
         sealed class BackgroundJob
         {
             public ParallelJobMetric metric;
-            public bool done;
+            public bool done, independentWordEffect;
             public string error;
         }
         readonly List<BackgroundJob> backgroundJobs = new List<BackgroundJob>();
@@ -375,6 +375,8 @@ namespace BrailleSoundDemo
             Log("word - " + normalizedWord + (finishMarker ? (PhysicalWordsEnabled ? " [final round]" : "#") : ""));
             if (!Valid(token)) return false;
             if (!Save()) return false;
+            if (GuidedDialogueEnabled) StartGuidedWordEffect(index);
+            if (!Valid(token)) return false;
             StartCoroutine(GuidedDialogueEnabled ? GuidedDialogueSequence("word", index, token) : WordSequence(index, token));
             return true;
         }
@@ -446,12 +448,14 @@ namespace BrailleSoundDemo
                 word.finishMarker = i == combined.Count - 1;
             }
 
-            generation++; CancelJobMetrics(); StopAllCoroutines();
+            bool keepWordEffects = GuidedDialogueEnabled;
+            generation++; CancelJobMetrics(keepWordEffects); StopAllCoroutines();
             wordSource.Stop(); voiceSource.Stop();
             if (activeSpatialSource != null) activeSpatialSource.Stop();
-            Palette?.CancelPending(); Palette?.StopAllPlayback();
+            if (!keepWordEffects) Palette?.CancelPending();
+            Palette?.StopAllPlayback();
             microphone?.Cancel(); CancelProviderWork(false); liveAnswerPending = false;
-            ClearWordPlayback(); backgroundJobs.Clear();
+            ClearWordPlayback(); backgroundJobs.RemoveAll(job => !keepWordEffects || !job.independentWordEffect);
             pendingQuestion = ""; CurrentPrompt = "";
             if (GuidedDialogueEnabled) CancelGuidedPromptForStory();
             if (useLiveProvider && !IsLive)
@@ -476,6 +480,9 @@ namespace BrailleSoundDemo
             int token = generation;
             SetState(ConversationState.RequestingStory, "Creating a story from your saved progress.");
             if (!Valid(token)) return false;
+            if (keepWordEffects)
+                for (int i = 0; i < Record.words.Count; i++) StartGuidedWordEffect(i);
+            if (!Valid(token)) return false;
             StartCoroutine(StorySequence(finalWord.word, token));
             return true;
         }
@@ -495,6 +502,7 @@ namespace BrailleSoundDemo
             bool wasReady = SpatialReady;
             spatialTrackingReady = ready;
             Palette?.SetSpatialReady(SpatialReady);
+            RefreshGuidedEffectPlayback();
             if (SpatialReady == wasReady) return;
             if (!SpatialReady && wordPlaybackActive && wordPlaybackStarted && activeSpatialSource != null && activeSpatialSource.isPlaying)
             {
@@ -754,6 +762,7 @@ namespace BrailleSoundDemo
         void OnApplicationPause(bool paused)
         {
             applicationPaused = paused;
+            RefreshGuidedEffectPlayback();
             if (!paused || !IsLive || !liveAnswerPending || Record == null || activeIndex < 0 ||
                 Record.words.Count <= activeIndex || !AnswerRoundPending(activeIndex) ||
                 (State != ConversationState.Listening && State != ConversationState.PreparingAnswer)) return;
@@ -987,28 +996,31 @@ namespace BrailleSoundDemo
                 if (spatial) ClearWordPlayback();
             }
         }
-        BackgroundJob StartJob(string operation, int index, Func<IEnumerator> routine, int token)
+        BackgroundJob StartJob(string operation, int index, Func<IEnumerator> routine, int token,
+            MonoBehaviour runner = null, Func<bool> stillCurrent = null)
         {
-            var job = new BackgroundJob { metric = new ParallelJobMetric {
+            var job = new BackgroundJob { independentWordEffect = runner == Palette, metric = new ParallelJobMetric {
                 operation = operation, wordIndex = index, status = "Running", startedAt = Time.realtimeSinceStartupAsDouble
             } };
             backgroundJobs.Add(job);
             Record.parallelJobs.Add(job.metric);
             Changed?.Invoke();
-            if (Valid(token)) StartCoroutine(RunJob(job, routine, token));
+            if (stillCurrent?.Invoke() ?? Valid(token))
+                (runner != null ? runner : this).StartCoroutine(RunJob(job, routine, token, stillCurrent));
             return job;
         }
-        IEnumerator RunJob(BackgroundJob job, Func<IEnumerator> routine, int token)
+        IEnumerator RunJob(BackgroundJob job, Func<IEnumerator> routine, int token, Func<bool> stillCurrent = null)
         {
             // Flatten nested iterator work so a provider/preparation exception becomes a completed
             // failed job instead of leaving the main sequence waiting forever.
+            Func<bool> currentJob = stillCurrent ?? (() => Valid(token));
             var iterators = new Stack<IEnumerator>();
             IEnumerator first = null;
             try { first = routine(); }
             catch (Exception error) { job.error = error.Message; }
             if (first == null && job.error == null) job.error = "The " + job.metric.operation + " job returned no work.";
             if (first != null) iterators.Push(first);
-            while (Valid(token) && job.error == null && iterators.Count > 0)
+            while (currentJob() && job.error == null && iterators.Count > 0)
             {
                 var current = iterators.Peek();
                 bool moved = false;
@@ -1031,7 +1043,7 @@ namespace BrailleSoundDemo
                 try { (iterators.Pop() as IDisposable)?.Dispose(); }
                 catch (Exception error) { if (job.error == null) job.error = error.Message; }
             }
-            if (!Valid(token)) yield break;
+            if (!currentJob()) yield break;
             job.done = true;
             job.metric.completedAt = Time.realtimeSinceStartupAsDouble;
             job.metric.error = job.error;
@@ -1044,11 +1056,11 @@ namespace BrailleSoundDemo
                 if (backgroundJobs[i].metric.operation == operation) return backgroundJobs[i].metric.status;
             return "Idle";
         }
-        void CancelJobMetrics()
+        void CancelJobMetrics(bool keepWordEffects = false)
         {
             foreach (var job in backgroundJobs)
             {
-                if (job.done) continue;
+                if (job.done || (keepWordEffects && job.independentWordEffect)) continue;
                 job.done = true;
                 job.metric.status = "Cancelled";
                 job.metric.completedAt = Time.realtimeSinceStartupAsDouble;
@@ -1176,6 +1188,7 @@ namespace BrailleSoundDemo
             generation++; CancelJobMetrics(); StopAllCoroutines();
             wordSource.Stop(); voiceSource.Stop();
             if (activeSpatialSource != null) activeSpatialSource.Stop();
+            StopGuidedEffectPlayback();
             Palette?.CancelPending(); Palette?.StopAllPlayback();
             microphone?.Cancel(); CancelProviderWork(false); liveAnswerPending = false;
             ClearWordPlayback();
@@ -1256,6 +1269,7 @@ namespace BrailleSoundDemo
             generation++; CancelJobMetrics(); StopAllCoroutines();
             wordSource.Stop(); voiceSource.Stop();
             if (activeSpatialSource != null) activeSpatialSource.Stop();
+            StopGuidedEffectPlayback();
             Palette?.CancelPending(); Palette?.StopAllPlayback();
             microphone?.Cancel(); CancelProviderWork(false); liveAnswerPending = false;
             ClearWordPlayback();
@@ -1284,6 +1298,7 @@ namespace BrailleSoundDemo
             ClearInterruptedAnswer();
             generation++; CancelJobMetrics(); StopAllCoroutines(); if (wordSource != null) wordSource.Stop(); if (voiceSource != null) voiceSource.Stop();
             if (activeSpatialSource != null) activeSpatialSource.Stop();
+            StopGuidedEffectPlayback();
             Palette?.CancelPending(); Palette?.StopAllPlayback();
             microphone?.Cancel(); CancelProviderWork(true); liveAnswerPending = false; ClearWordPlayback();
         }

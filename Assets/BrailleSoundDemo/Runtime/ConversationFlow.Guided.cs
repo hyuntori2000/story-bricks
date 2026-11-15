@@ -10,8 +10,10 @@ namespace BrailleSoundDemo
         const string BuildWordInput = "build_word", SpeakAnswerInput = "speak_answer";
         bool guidedEnabled, guidedRequestPending, guidedFinishPending;
         string guidedNextInput = "", guidedPromptTurnId = "", guidedRequestTurnId = "";
-        readonly HashSet<string> guidedCompletedWords = new HashSet<string>(StringComparer.Ordinal);
-        AudioSource guidedEffectSource;
+        readonly HashSet<string> guidedSoundWords = new HashSet<string>(StringComparer.Ordinal);
+        readonly HashSet<AudioSource> guidedEffectSources = new HashSet<AudioSource>();
+        readonly HashSet<AudioSource> guidedPausedEffectSources = new HashSet<AudioSource>();
+        int guidedEffectGeneration;
 
         public bool GuidedDialogueEnabled => guidedEnabled && PhysicalWordsEnabled;
         public string ExpectedInput => GuidedDialogueEnabled ? guidedNextInput : CanAnswer ? SpeakAnswerInput : BuildWordInput;
@@ -58,7 +60,6 @@ namespace BrailleSoundDemo
         IEnumerator GuidedDialogueSequence(string dialogueEvent, int index, int token)
         {
             if (!Valid(token) || !GuidedDialogueEnabled || provider is not IDialogueStoryProvider dialogue) yield break;
-            StopGuidedEffectPlayback();
             guidedRequestPending = true; guidedNextInput = "";
             var context = CaptureContext(index >= 0 ? Record.words[index].word : "");
             context.dialogueEvent = dialogueEvent;
@@ -80,7 +81,6 @@ namespace BrailleSoundDemo
             // answer is sufficient, even if that now-obsolete request fails.
             if (dialogueEvent == "answer" && guidedFinishPending)
             {
-                CompleteGuidedWord(index, token);
                 if (!Valid(token)) yield break;
                 ClearGuidedPrompt(); EnterGuidedBuildWait();
                 yield break;
@@ -101,7 +101,6 @@ namespace BrailleSoundDemo
             }
             guidedPromptTurnId = reply.turnId; guidedNextInput = reply.nextInput;
             pendingQuestion = CurrentPrompt = reply.text;
-            if (index >= 0 && reply.nextInput == BuildWordInput) CompleteGuidedWord(index, token);
             if (!Valid(token)) yield break;
             Palette.StopAllPlayback();
             SetState(ConversationState.Asking, "Story guidance is playing.");
@@ -151,14 +150,12 @@ namespace BrailleSoundDemo
             if (word.finishMarker)
             {
                 guidedFinishPending = true;
-                CompleteGuidedWord(index, token);
                 if (!Valid(token)) yield break;
                 yield return StorySequence(word.word, token);
                 yield break;
             }
             if (guidedFinishPending)
             {
-                CompleteGuidedWord(index, token);
                 if (Valid(token)) EnterGuidedBuildWait();
                 yield break;
             }
@@ -187,56 +184,74 @@ namespace BrailleSoundDemo
             return true;
         }
 
-        void CompleteGuidedWord(int index, int token)
+        void StartGuidedWordEffect(int index)
         {
-            if (!Valid(token) || index < 0 || index >= Record.words.Count) return;
+            if (!GuidedDialogueEnabled || !IsLive || !Palette.LiveEffectsEnabled ||
+                index < 0 || index >= Record.words.Count) return;
             var word = Record.words[index];
-            if (!guidedCompletedWords.Add(word.groupId)) return;
-            var descriptions = new List<string>();
-            foreach (var turn in Record.turns)
-                if (turn.wordIndex == index && turn.inputType == SpeakAnswerInput) descriptions.Add(turn.answer);
-            if (!IsLive || !Palette.LiveEffectsEnabled || descriptions.Count == 0) return;
-            string context = string.Join(" ", descriptions);
-            var job = StartJob("word sound", index, () => PrepareGuidedWordEffect(index, context, token), token);
-            liveWordSoundJobs[index] = job;
+            if (!guidedSoundWords.Add(word.groupId)) return;
+            int token = guidedEffectGeneration;
+            // Sound belongs to the accepted word/session, not to a spoken-answer turn.
+            // Palette hosts this job so manual Create Story can cancel dialogue without canceling sound.
+            liveWordSoundJobs[index] = StartJob("word sound", index,
+                () => PrepareGuidedWordEffect(index, token), generation,
+                Palette, () => ValidGuidedEffect(token));
         }
 
-        IEnumerator PrepareGuidedWordEffect(int index, string context, int token)
+        bool ValidGuidedEffect(int token) => token == guidedEffectGeneration && isActiveAndEnabled &&
+            GuidedDialogueEnabled && State != ConversationState.Error;
+
+        IEnumerator PrepareGuidedWordEffect(int index, int token)
         {
+            if (!ValidGuidedEffect(token)) yield break;
             var word = Record.words[index];
             AudioClip clip = null;
-            yield return Palette.PrepareWord(word.word, context, value => { if (Valid(token)) clip = value; });
-            if (!Valid(token)) yield break;
-            if (clip == null) { Log("[Word sound] Optional contextual effect unavailable; dialogue continues."); yield break; }
+            // Empty context: never send the child's spoken sentences to sound generation.
+            yield return Palette.PrepareWord(word.word, value => { if (ValidGuidedEffect(token)) clip = value; });
+            if (!ValidGuidedEffect(token)) yield break;
+            if (clip == null) { Log("[Word sound] Effect unavailable; dialogue continues."); yield break; }
             preparedLiveWordClips[index] = clip;
             WordSoundPrepared?.Invoke(word.groupId, clip);
-            if (!Valid(token) || !CanPlayGuidedEffect()) yield break;
+            // Speech, recording, story generation and narration do not gate this effect.
+            // Wait only while the headset/anchor cannot play positioned audio safely.
+            while (ValidGuidedEffect(token) && (applicationPaused || !SpatialReady)) yield return null;
+            if (!ValidGuidedEffect(token)) yield break;
             AudioSource source = null;
             try { source = ResolveWordAudioSource?.Invoke(word.groupId); }
             catch (Exception error) { Log("[Word sound] Anchor source unavailable: " + error.Message); }
-            if (source == null) yield break; // Retain the clip rather than invent a stale spatial position.
-            guidedEffectSource = activeSpatialSource = source;
-            source.clip = clip; source.volume = .8f * Palette.WordGainMultiplier;
+            if (source == null) { Log("[Word sound] No box source for " + word.word + "."); yield break; }
+            guidedEffectSources.Add(source);
+            source.clip = clip; source.volume = .8f * .7f * Palette.WordGainMultiplier;
             if (!TestFastMode) source.Play();
-            while (Valid(token) && source != null && source.isPlaying && CanPlayGuidedEffect()) yield return null;
+            Log("[Word sound] Playing " + word.word + " at 70% of the previous gain.");
+            while (ValidGuidedEffect(token) && source != null && source.clip == clip &&
+                (source.isPlaying || guidedPausedEffectSources.Contains(source))) yield return null;
             if (source != null && source.clip == clip) source.Stop();
-            if (guidedEffectSource == source) guidedEffectSource = null;
-            if (activeSpatialSource == source) activeSpatialSource = null;
+            guidedEffectSources.Remove(source); guidedPausedEffectSources.Remove(source);
         }
-        bool CanPlayGuidedEffect() => GuidedDialogueEnabled && State == ConversationState.Silent &&
-            guidedNextInput == BuildWordInput && !guidedRequestPending && !liveAnswerPending && !IsRecording &&
-            !storyRequested && SpatialReady && (voiceSource == null || !voiceSource.isPlaying);
+        void RefreshGuidedEffectPlayback()
+        {
+            foreach (var source in guidedEffectSources)
+            {
+                if (source == null) continue;
+                if (applicationPaused || !SpatialReady)
+                {
+                    if (source.isPlaying) { source.Pause(); guidedPausedEffectSources.Add(source); }
+                }
+                else if (guidedPausedEffectSources.Remove(source)) source.UnPause();
+            }
+        }
         void StopGuidedEffectPlayback()
         {
-            if (guidedEffectSource != null) guidedEffectSource.Stop();
-            if (activeSpatialSource == guidedEffectSource) activeSpatialSource = null;
-            guidedEffectSource = null;
+            ++guidedEffectGeneration;
+            foreach (var source in guidedEffectSources) if (source != null) source.Stop();
+            guidedEffectSources.Clear(); guidedPausedEffectSources.Clear();
         }
         void ClearGuidedPrompt() { guidedPromptTurnId = ""; guidedNextInput = ""; pendingQuestion = ""; CurrentPrompt = ""; }
         void CancelGuidedPromptForStory()
         {
             guidedRequestPending = false; guidedRequestTurnId = ""; guidedFinishPending = true;
-            ClearGuidedPrompt(); StopGuidedEffectPlayback();
+            ClearGuidedPrompt();
         }
         void RecoverGuidedDialogueFailure(string operation, StoryReply reply, string error)
         {
@@ -252,7 +267,7 @@ namespace BrailleSoundDemo
         {
             StopGuidedEffectPlayback(); guidedEnabled = false; guidedRequestPending = false; guidedFinishPending = false;
             guidedNextInput = guidedPromptTurnId = guidedRequestTurnId = "";
-            guidedCompletedWords.Clear();
+            guidedSoundWords.Clear();
         }
 
         /// <summary>Offline verification only: exercise multi-turn input without a microphone or live provider.</summary>

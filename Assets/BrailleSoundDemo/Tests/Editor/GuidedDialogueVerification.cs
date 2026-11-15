@@ -161,7 +161,78 @@ namespace BrailleSoundDemo.Tests
                 Require(!f.Flow.GuidedDialogueEnabled && f.Flow.Record.words.Count == 0 && f.Flow.State == ConversationState.Ready,
                     "A callback from a reset guided session cannot alter the new session.");
             }
+            VerifyImmediateWordSound();
             Debug.Log("GUIDED_DIALOGUE_VERIFICATION_PASSED " + checks);
+        }
+        static void VerifyImmediateWordSound()
+        {
+            using (var f = new Fixture())
+            {
+                f.Word("JUDY", "build_word");
+                Require(!f.Flow.Record.turns.Exists(turn => turn.inputType == "speak_answer"),
+                    "The first word sound fixture has no spoken-answer context.");
+                var palette = f.Flow.Palette;
+                palette.LiveEffectsEnabled = true; palette.SessionId = () => f.Flow.Record.sessionId;
+                var cache = (Dictionary<string, AudioClip>)typeof(SoundPalettePipeline).GetField("generatedClips", Private).GetValue(palette);
+                // A cache miss must fail locally, never contact a provider during this verification.
+                typeof(SoundPalettePipeline).GetField("liveClient", Private).SetValue(palette, new LiveSoundEffectClient(() => null));
+                var clip = AudioClip.Create("Offline recognized-word effect", 240, 1, 24000, false);
+                string key = palette.ExperienceContext().Key + ":" + f.Flow.Record.sessionId + ":JUDY:";
+                cache[key] = clip;
+                var node = new GameObject("Offline word effect source"); node.transform.SetParent(f.Root.transform);
+                var source = node.AddComponent<AudioSource>(); source.playOnAwake = false;
+                f.Flow.ResolveWordAudioSource = _ => source;
+                int attached = 0; f.Flow.WordSoundPrepared += (_, _) => attached++;
+                Func<IEnumerator> prepare = () => (IEnumerator)Method("PrepareGuidedWordEffect").Invoke(f.Flow,
+                    new object[] { 0, (int)typeof(ConversationFlow).GetField("guidedEffectGeneration", Private).GetValue(f.Flow) });
+                try
+                {
+                    foreach (var state in new[] { ConversationState.Asking, ConversationState.Listening,
+                        ConversationState.RequestingStory, ConversationState.Story, ConversationState.Finished })
+                    {
+                        Method("SetState").Invoke(f.Flow, new object[] { state, "Offline simultaneous sound" });
+                        source.clip = null;
+                        Pump(prepare());
+                        Require(source.clip == clip && Mathf.Approximately(source.volume, .56f * palette.WordGainMultiplier),
+                            "Word-only effect is prepared at 70 percent volume during " + state + ".");
+                    }
+                    Require(attached == 5, "Every busy-state sound result reaches its word box without an answer sentence.");
+
+                    // Suspend the cached asynchronous result before its callback, then change only dialogue generation.
+                    Method("SetState").Invoke(f.Flow, new object[] { ConversationState.Listening, "Offline manual finish" });
+                    var pending = prepare(); Require(pending.MoveNext(), "Word effect reaches its preparation boundary.");
+                    var result = (IEnumerator)pending.Current;
+                    Require(result.MoveNext(), "Cached word effect yields before its callback.");
+                    Require(f.Flow.CreateStoryFromSavedProgress(useLiveProvider: false), "Manual story can start with a word effect pending.");
+                    source.clip = null; Pump(result); Pump(pending);
+                    Require(attached == 6 && source.clip == clip,
+                        "Manual Create Story preserves the pending word effect without regenerating it.");
+
+                    var otherNode = new GameObject("Second offline effect source"); otherNode.transform.SetParent(f.Root.transform);
+                    var other = otherNode.AddComponent<AudioSource>(); other.playOnAwake = false;
+                    var sources = (HashSet<AudioSource>)typeof(ConversationFlow).GetField("guidedEffectSources", Private).GetValue(f.Flow);
+                    var paused = (HashSet<AudioSource>)typeof(ConversationFlow).GetField("guidedPausedEffectSources", Private).GetValue(f.Flow);
+                    sources.Add(source); sources.Add(other); paused.Add(source); paused.Add(other);
+                    int oldSoundToken = (int)typeof(ConversationFlow).GetField("guidedEffectGeneration", Private).GetValue(f.Flow);
+                    Method("StopGuidedEffectPlayback").Invoke(f.Flow, null);
+                    Require(sources.Count == 0 && paused.Count == 0 &&
+                        !(bool)Method("ValidGuidedEffect").Invoke(f.Flow, new object[] { oldSoundToken }),
+                        "Sound cleanup releases every tracked source and invalidates prior completions.");
+
+                    var late = prepare(); Require(late.MoveNext(), "Late word effect reaches its preparation boundary.");
+                    var lateResult = (IEnumerator)late.Current;
+                    Require(lateResult.MoveNext(), "Late cached effect is waiting before reset.");
+                    cache.Clear(); // The fixture owns this synthetic clip and destroys it immediately below.
+                    f.Flow.ResetSession(); Pump(lateResult); Pump(late);
+                    Require(attached == 6 && f.Flow.Record.words.Count == 0,
+                        "Reset rejects a late word effect before it can attach to the new session.");
+                }
+                finally
+                {
+                    cache.Clear();
+                    if (clip != null) UnityEngine.Object.DestroyImmediate(clip);
+                }
+            }
         }
         static MethodInfo Method(string name) => typeof(ConversationFlow).GetMethod(name, Private) ?? throw new MissingMethodException(name);
         static int Generation(ConversationFlow flow) => (int)typeof(ConversationFlow).GetField("generation", Private).GetValue(flow);
