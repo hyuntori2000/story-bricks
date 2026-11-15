@@ -15,7 +15,7 @@ from time import perf_counter
 import cv2
 import numpy as np
 
-from lego_ocr_adapter import get_engine, _read_crop
+from lego_ocr_adapter import get_engine, get_english_engine, _read_crop, OCR_MODEL, OCR_MODEL_SHA256
 from lego_braille_adapter import _reading_order
 from braille_face_locator import locate_faces, capture_selection_quad, capture_face_membership
 from capture_crop_archive import target_crop_pixels
@@ -29,7 +29,8 @@ PIN = json.loads((PROJECT / "Config/recognition-source.json").read_text())
 METHOD = "parallel_first_accepted_word_v1"
 PROVENANCE = {"algorithm_id": METHOD, "upstream_commit": PIN["commit"],
               "ocr_reader": "LEGO_OCR.CalibratedOCRReader",
-              "ocr_geometry_fallback": "automatic labels with upstream OCR and printed-period validation",
+              "ocr_retry_model": OCR_MODEL, "ocr_retry_model_sha256": OCR_MODEL_SHA256,
+              "ocr_geometry_fallback": "existing automatic labels; English row retry only after rejected OCR, with complete known-face matching",
               "braille_reader": "LEGO_OCR.BrailleReader",
               "ocr_min_score": MIN_OCR_SCORE,
               "selection_policy": "first_complete_word", "cancel_loser": False,
@@ -102,24 +103,68 @@ def locate_layout(crop, context):
         raise GeometryError("invalid_face_geometry: " + str(error)) from error
 
 
+def _automatic_ocr(crop, context, *, english=False):
+    selection = capture_selection_quad(context["region"])
+    automatic = _read_crop(crop, selection, perf_counter(), engine=get_english_engine() if english else None)
+    if automatic["status"] != "recognized":
+        raise RecognitionRejected(automatic.get("reason", "unread_labels"), "automatic_labels")
+    payload = automatic["result"]
+    layout = {"version": 1, "image_size": list(crop.shape[1::-1]), "cells": [
+        {"row_id": c["row_id"], "slot_index": c["slot_index"], "quad": c["face_polygon"]} for c in payload["cells"]]}
+    payload.update(_layout=layout, readerPath="english_labels_retry" if english else "automatic_labels",
+                   diagnostics=automatic.get("diagnostics", {}))
+    return payload
+
+
+def _match_calibrated_faces(automatic, calibrated, layout):
+    """A row retry must account for every known brick; never accept a partial word."""
+    cells = sorted(automatic["cells"], key=lambda c: c["slot_index"])
+    original = sorted(calibrated["cells"], key=lambda c: c["slot_index"])
+    faces = layout["cells"]
+    if len(cells) != len(faces) or len(original) != len(faces):
+        raise RecognitionRejected("automatic_face_count_mismatch", "english_labels_retry")
+    quads = [np.asarray(face["quad"], np.float32) for face in faces]
+    matched = []
+    for i, cell in enumerate(cells):
+        label = np.asarray(cell["face_polygon"], np.float32)
+        center = tuple(float(v) for v in label.mean(axis=0))
+        owners = [j for j, q in enumerate(quads) if cv2.pointPolygonTest(q, center, False) >= 0]
+        area = cv2.contourArea(label)
+        if (owners != [i] or area <= 0 or
+                cv2.intersectConvexConvex(label, quads[i])[0] < .90 * area):
+            raise RecognitionRejected("automatic_face_match_ambiguous", "english_labels_retry")
+        if original[i].get("accepted") and original[i].get("value") != cell.get("value"):
+            raise RecognitionRejected("automatic_calibrated_conflict", "english_labels_retry")
+        matched.append(dict(cell, row_id=faces[i]["row_id"], slot_index=faces[i]["slot_index"],
+                            face_polygon=faces[i]["quad"], label_polygon=label.tolist(),
+                            geometry_kind="full_face_matched_label"))
+    automatic.update(cells=matched, _layout=layout, readerPath="english_labels_after_calibrated")
+    automatic["diagnostics"].update(completenessVerified=True, matchedFaceCount=len(faces))
+    return automatic
+
+
 def read_ocr(crop, context):
     try:
         layout = locate_layout(crop, context)
     except GeometryError as error:
         # Moving-camera faces may be unresolved although printed labels remain
         # readable. Preserve the existing automatic-text route in this case.
-        selection = capture_selection_quad(context["region"])
-        automatic = _read_crop(crop, selection, perf_counter())
-        if automatic["status"] != "recognized":
-            raise RecognitionRejected(automatic.get("reason", "unread_labels") + "; face geometry: " + str(error), "automatic_labels")
-        payload = automatic["result"]
-        layout = {"version": 1, "image_size": list(crop.shape[1::-1]), "cells": [
-            {"row_id": c["row_id"], "slot_index": c["slot_index"], "quad": c["face_polygon"]} for c in payload["cells"]]}
-        payload.update(_layout=layout, readerPath="automatic_labels", geometryIssue=str(error),
-                       diagnostics=automatic.get("diagnostics", {}))
+        try:
+            payload = _automatic_ocr(crop, context)
+        except RecognitionRejected as rejected:
+            try:
+                payload = _automatic_ocr(crop, context, english=True)
+            except RecognitionRejected as retry:
+                raise RecognitionRejected(str(rejected) + "; English retry: " + str(retry) + "; face geometry: " + str(error), "english_labels_retry") from None
+        payload["geometryIssue"] = str(error)
         return payload
     payload = CalibratedOCRReader(layout, engine=get_engine()).read(crop)[0]
     payload.update(_layout=layout, readerPath="calibrated_labels")
+    if not all(cell.get("accepted") for cell in payload["cells"]) and "region" in context:
+        try:
+            return _match_calibrated_faces(_automatic_ocr(crop, context, english=True), payload, layout)
+        except RecognitionRejected as error:
+            payload["diagnostics"] = {"automaticRetryReason": str(error)}
     return payload
 
 
@@ -138,7 +183,7 @@ def convert(payload, layout, info, source):
     if len(cells) != len(expected) or actual != expected:
         raise ValueError("reader_cell_count_mismatch")
     word = "".join(c.get("value") or "?" for c in cells)
-    accepted = all(c.get("accepted") is True for c in cells) and bool(re.fullmatch(r"[A-Z.]{1,32}", word)) and (word == "." or bool(re.search(r"[A-Z]", word)))
+    accepted = all(c.get("accepted") is True and re.fullmatch(r"[A-Z.]", c.get("value") or "") for c in cells) and bool(re.fullmatch(r"[A-Z.]{1,32}", word)) and (word == "." or bool(re.search(r"[A-Z]", word)))
     keys = ("row_id", "slot_index", "value", "accepted", "reason", "bits", "mask",
             "raw_ocr_text", "raw_ocr_score", "score", "source", "estimated_source_stud_diameter_px", "period_diagnostics")
     x, y = info["originInFullImage"]["x"], info["originInFullImage"]["y"]
@@ -201,6 +246,7 @@ class ParallelRecognizer:
         started = perf_counter()
         record = {"sessionId": metadata["sessionId"], "frameId": metadata["frameId"],
                   "startedAtUtc": datetime.now(timezone.utc).isoformat(), "algorithmCommit": PIN["commit"],
+                  "ocrRetryModel": OCR_MODEL,
                   "selectedSource": None, "selectedWord": None, "decisionMs": None,
                   "complete": False, "disagreement": False,
                   "ocr": {"status": "pending", "word": None, "elapsedMs": None, "reason": ""},

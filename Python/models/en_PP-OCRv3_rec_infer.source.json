@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "file": "en_PP-OCRv3_rec_infer.onnx",
+  "model": "English PP-OCRv3 recognition, ONNX inference model",
+  "sizeBytes": 8967018,
+  "sha256": "ef7abd8bd3629ae57ea2c28b425c1bd258a871b93fd2fe7c433946ade9b5d9ea",
+  "sourceRepository": "https://huggingface.co/spaces/RapidAI/RapidOCR",
+  "sourceRevision": "ad05aa73dc29dbf3d2a4f3d8af303244cdf91634",
+  "sourceUrl": "https://huggingface.co/spaces/RapidAI/RapidOCR/resolve/ad05aa73dc29dbf3d2a4f3d8af303244cdf91634/models/text_rec/en_PP-OCRv3_rec_infer.onnx",
+  "conversionPublisher": "SWHL / RapidAI (RapidOCR)",
+  "publisherModelCard": "https://huggingface.co/SWHL/RapidOCR",
+  "originalProject": "https://github.com/PaddlePaddle/PaddleOCR",
+  "trainingConfiguration": "https://github.com/PaddlePaddle/PaddleOCR/blob/release/2.6/configs/rec/PP-OCRv3/en_PP-OCRv3_rec.yml",
+  "license": "Apache-2.0",
+  "licenseSources": {
+    "LICENSE-RapidOCR.txt": "https://raw.githubusercontent.com/RapidAI/RapidOCR/main/LICENSE",
+    "LICENSE-PaddleOCR.txt": "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/release/2.6/LICENSE"
+  },
+  "localModifications": "None. The ONNX file is byte-for-byte identical to the pinned published model.",
+  "compatibleRuntime": "rapidocr-onnxruntime 1.4.4 / onnxruntime 1.20.1",
+  "recognitionImageShape": [
+    3,
+    48,
+    320
+  ]
+}

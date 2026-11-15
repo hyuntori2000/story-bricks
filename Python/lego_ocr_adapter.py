@@ -7,6 +7,7 @@ regions are proposed from the label row and checked by the unchanged upstream
 period reader. No expected word or manually specified image corners are used.
 """
 from functools import lru_cache
+import hashlib
 import os
 from pathlib import Path
 import sys
@@ -28,6 +29,8 @@ from ocr_label_rules import normalize_label  # noqa: E402
 from ocr_reader import DECODER_ID, MIN_OCR_SCORE  # noqa: E402
 from printed_period_bridge import propose_period_tokens  # noqa: E402
 
+OCR_MODEL = "en_PP-OCRv3_rec_infer.onnx"
+OCR_MODEL_SHA256 = "ef7abd8bd3629ae57ea2c28b425c1bd258a871b93fd2fe7c433946ade9b5d9ea"
 METHOD = "RapidOCR automatic text boxes + LEGO_OCR label and printed-period readers"
 PROVENANCE = {"algorithm_id": "automatic_ppocrv4_labels_period_v2", "decoder_id": DECODER_ID,
               "boundary_validator": "LEGO_OCR.braille_geometry.validate_layout",
@@ -40,9 +43,21 @@ BOUNDARY_MARGIN_PIXELS = 1.0
 @lru_cache(maxsize=1)
 def get_engine():
     from rapidocr_onnxruntime import RapidOCR
-    # Match the upstream reader's model/CPU settings. Models are bundled locally.
+    # Keep the existing primary model and its accepted results unchanged.
     return RapidOCR(intra_op_num_threads=4, inter_op_num_threads=1,
                     use_cls=False, rec_batch_num=6, rec_img_shape=[3, 48, 96])
+
+
+@lru_cache(maxsize=1)
+def get_english_engine():
+    from rapidocr_onnxruntime import RapidOCR
+    # English labels need the matching English weights and embedded dictionary.
+    # The pinned local asset keeps captures offline and acceptance at upstream's .85.
+    model = Path(__file__).resolve().parent / "models" / OCR_MODEL
+    if not model.is_file() or hashlib.sha256(model.read_bytes()).hexdigest() != OCR_MODEL_SHA256:
+        raise RuntimeError("The bundled English OCR model is missing or damaged. Restore Python/models from Git.")
+    return RapidOCR(intra_op_num_threads=4, inter_op_num_threads=1,
+                    use_cls=False, rec_batch_num=6, rec_model_path=str(model), rec_img_shape=[3, 48, 320])
 
 
 def _layout(quads, size):
@@ -133,12 +148,12 @@ def _retry(reason, message, started, diagnostics=None):
             "diagnostics": diagnostics or {}, "proposalTimingMs": round((perf_counter()-started)*1000, 3)}
 
 
-def _read_crop(crop, selection, started):
+def _read_crop(crop, selection, started, *, engine=None):
     h, w = crop.shape[:2]
     with _ENGINE_LOCK:
         # Keep uncertain text in the response so a weak letter cannot silently
         # disappear from an otherwise accepted word. Apply upstream's score gate below.
-        records, elapsed = get_engine()(crop, use_det=True, use_cls=False, use_rec=True,
+        records, elapsed = (engine if engine is not None else get_engine())(crop, use_det=True, use_cls=False, use_rec=True,
                                        return_word_box=True, text_score=0.0)
     diagnostics = {"wholeBrickBoundaryChecked": False, "boundaryKind": "printed_label",
                    "boundaryValidator": PROVENANCE["boundary_validator"],

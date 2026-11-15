@@ -143,12 +143,125 @@ class ParallelTests(unittest.TestCase):
         region = {"readingOrientation": "labels_toward_viewer", "readingQuad": [
             {"x": 0, "y": 0}, {"x": 99, "y": 0}, {"x": 99, "y": 99}, {"x": 0, "y": 99}]}
         with patch('parallel_recognition.locate_layout', side_effect=GeometryError('unresolved_face_boundaries')), \
-             patch('parallel_recognition._read_crop', return_value=recognized):
+             patch('parallel_recognition._read_crop', return_value=recognized) as row_reader, \
+             patch('parallel_recognition.get_english_engine') as english:
             raw = read_ocr(self.image, {"region": region})
             result = convert(raw, {"region": region}, INFO, "ocr")
+            row_reader.assert_called_once()
+            english.assert_not_called()
         self.assertEqual(result["word"], "A")
         self.assertEqual(result["readerPath"], "automatic_labels")
         self.assertEqual(result["geometryIssue"], "unresolved_face_boundaries")
+
+    def calibrated_retry_fixture(self):
+        layout = {"version": 1, "image_size": [100, 100], "cells": []}
+        calibrated, automatic = {"cells": []}, {"status": "recognized", "result": {"cells": []}}
+        for index, value in enumerate("CAT."):
+            x = 6 + 23 * index
+            face = [[x, 20], [x + 18, 20], [x + 18, 60], [x, 60]]
+            layout["cells"].append({"row_id": "word", "slot_index": index, "quad": face})
+            calibrated["cells"].append({"row_id": "word", "slot_index": index,
+                "value": value if index == 0 else "?", "accepted": index == 0,
+                "reason": "recognized" if index == 0 else "low_ocr_score", "face_polygon": face})
+            automatic["result"]["cells"].append({"row_id": "word", "slot_index": index,
+                "value": value, "accepted": True, "reason": "recognized", "raw_ocr_score": .96,
+                # OCR boxes can extend slightly below an estimated physical face.
+                "face_polygon": [[x + 3, 48], [x + 15, 48], [x + 15, 60.2], [x + 3, 60.2]]})
+        region = {"readingOrientation": "labels_toward_viewer", "readingQuad": [
+            {"x": 0, "y": 0}, {"x": 99, "y": 0}, {"x": 99, "y": 99}, {"x": 0, "y": 99}]}
+        return layout, calibrated, automatic, {"region": region}
+
+    def run_calibrated_retry(self, layout, calibrated, automatic, context):
+        with patch('parallel_recognition.locate_layout', return_value=deepcopy(layout)), \
+             patch('parallel_recognition.get_engine'), \
+             patch('parallel_recognition.get_english_engine') as english, \
+             patch('parallel_recognition.CalibratedOCRReader') as reader, \
+             patch('parallel_recognition._read_crop', return_value=deepcopy(automatic)) as row_reader:
+            reader.return_value.read.return_value = (deepcopy(calibrated), [])
+            raw = read_ocr(self.image, context)
+            row_reader.assert_called_once()
+            english.assert_called_once()
+            self.assertIs(row_reader.call_args.kwargs["engine"], english.return_value)
+            return raw, convert(raw, context, INFO, "ocr")
+
+    def test_accepted_calibrated_word_never_loads_english_or_retries(self):
+        layout, calibrated, automatic, context = self.calibrated_retry_fixture()
+        for cell, value in zip(calibrated["cells"], "CAT."):
+            cell.update(value=value, accepted=True, reason="recognized")
+        with patch('parallel_recognition.locate_layout', return_value=layout), \
+             patch('parallel_recognition.get_engine'), \
+             patch('parallel_recognition.get_english_engine') as english, \
+             patch('parallel_recognition.CalibratedOCRReader') as reader, \
+             patch('parallel_recognition._read_crop') as row_reader:
+            reader.return_value.read.return_value = (calibrated, [])
+            raw = read_ocr(self.image, context)
+            result = convert(raw, context, INFO, "ocr")
+            english.assert_not_called()
+            row_reader.assert_not_called()
+        self.assertEqual(result["word"], "CAT.")
+        self.assertEqual(result["readerPath"], "calibrated_labels")
+
+    def test_missing_faces_tries_original_row_before_english_retry(self):
+        layout, calibrated, automatic, context = self.calibrated_retry_fixture()
+        with patch('parallel_recognition.locate_layout', side_effect=GeometryError('no_faces')), \
+             patch('parallel_recognition.get_english_engine') as english, \
+             patch('parallel_recognition._read_crop', side_effect=[
+                 {"status": "retry_needed", "reason": "uncertain_printed_label"}, automatic]) as row_reader:
+            raw = read_ocr(self.image, context)
+            result = convert(raw, context, INFO, "ocr")
+            self.assertEqual(row_reader.call_count, 2)
+            english.assert_called_once()
+            self.assertIsNone(row_reader.call_args_list[0].kwargs["engine"])
+            self.assertIs(row_reader.call_args_list[1].kwargs["engine"], english.return_value)
+        self.assertEqual(result["word"], "CAT.")
+        self.assertEqual(result["geometryIssue"], "no_faces")
+
+    def test_weak_calibrated_ocr_uses_complete_row_and_preserves_physical_faces(self):
+        layout, calibrated, automatic, context = self.calibrated_retry_fixture()
+        raw, result = self.run_calibrated_retry(layout, calibrated, automatic, context)
+        self.assertEqual(result["status"], "recognized")
+        self.assertEqual(result["word"], "CAT.")
+        self.assertEqual(result["readerPath"], "english_labels_after_calibrated")
+        self.assertTrue(result["diagnostics"]["completenessVerified"])
+        self.assertEqual(result["diagnostics"]["matchedFaceCount"], 4)
+        for actual, face, label in zip(raw["cells"], layout["cells"], automatic["result"]["cells"]):
+            self.assertEqual(actual["face_polygon"], face["quad"])
+            np.testing.assert_allclose(actual["label_polygon"], label["face_polygon"])
+        self.assertEqual(result["result"]["cells"][-1]["kind"], "punctuation")
+
+    def test_calibrated_retry_rejects_partial_conflicting_and_straddling_rows(self):
+        cases = [("missing_middle", "automatic_face_count_mismatch"),
+                 ("missing_period", "automatic_face_count_mismatch"),
+                 ("conflicting_letter", "automatic_calibrated_conflict"),
+                 ("straddling_label", "automatic_face_match_ambiguous"),
+                 ("reordered_labels", "automatic_face_match_ambiguous")]
+        for case, reason in cases:
+            with self.subTest(case=case):
+                layout, calibrated, automatic, context = self.calibrated_retry_fixture()
+                cells = automatic["result"]["cells"]
+                if case.startswith("missing"):
+                    cells.pop(1 if case == "missing_middle" else -1)
+                    for index, cell in enumerate(cells): cell["slot_index"] = index
+                elif case == "conflicting_letter":
+                    cells[0]["value"] = "D"
+                elif case == "straddling_label":
+                    cells[1]["face_polygon"] = [[25, 48], [55, 48], [55, 59], [25, 59]]
+                else:
+                    cells[1]["face_polygon"], cells[2]["face_polygon"] = cells[2]["face_polygon"], cells[1]["face_polygon"]
+                raw, result = self.run_calibrated_retry(layout, calibrated, automatic, context)
+                self.assertEqual(result["status"], "retry_needed")
+                self.assertIsNone(result["word"])
+                self.assertEqual(result["readerPath"], "calibrated_labels")
+                self.assertEqual(raw["diagnostics"]["automaticRetryReason"], reason)
+
+    def test_merged_label_cannot_count_as_multiple_accepted_letters(self):
+        layout, calibrated, automatic, context = self.calibrated_retry_fixture()
+        automatic["result"]["cells"][1]["value"] = "AT"
+        raw, result = self.run_calibrated_retry(layout, calibrated, automatic, context)
+        self.assertEqual(raw["readerPath"], "english_labels_after_calibrated")
+        self.assertEqual(result["status"], "retry_needed")
+        self.assertIsNone(result["word"])
+        self.assertEqual(result["result"]["cells"][1]["kind"], "unknown")
 
     def test_both_winners_have_the_existing_unity_detection_contract(self):
         store = FrameStore(Path(self.temp.name) / 'frames')
