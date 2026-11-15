@@ -52,7 +52,6 @@ namespace BrailleSoundDemo.PhysicalStory
         string workspaceCaptureSession, lastAcceptedGroupId, pendingPresentationGroupId;
         Coroutine poll;
         UnityWebRequest activePoll;
-        Material outlineMaterial;
         PinchWordBox pendingPinchBox;
         HandApproachSample pendingPinchSample;
         string pendingPinchSession;
@@ -286,6 +285,7 @@ namespace BrailleSoundDemo.PhysicalStory
             { SetStatus("Discarded a photo from an obsolete tracking reference or workspace."); return; }
             // Preserve the camera/plane values belonging to this exact JPEG.
             var metadata=JsonUtility.FromJson<QuestFrameCapture.CaptureMetadata>(JsonUtility.ToJson(original));
+            if(MatchingPinchBox(metadata,captureWordIndex)) pendingPinchBox.MarkCaptured();
             awaitingRecognition=true;
             SetStatus("Photo received. Reading the word automatically.");
             poll=StartCoroutine(PollRecognition(metadata,generation,captureStorySession,captureWordIndex));
@@ -409,19 +409,9 @@ namespace BrailleSoundDemo.PhysicalStory
             Vector3 position=geometry.CenterWorld+normal*.01f;
             var root=new GameObject("Recognized word anchor "+(index+1)+" "+geometry.Word);
             root.transform.SetParent(transform,false);
-            root.transform.SetPositionAndRotation(position,geometry.Rotation);
-            var outline=root.AddComponent<LineRenderer>();
-            outline.useWorldSpace=false; outline.loop=true; outline.positionCount=4;
-            outline.startWidth=.003f; outline.endWidth=.003f;
-            outline.numCornerVertices=2; outline.numCapVertices=2;
-            if(outlineMaterial == null)
-            {
-                outlineMaterial=new Material(Shader.Find("Unlit/Color"));
-                outlineMaterial.color=new Color(.2f,.85f,1);
-            }
-            outline.sharedMaterial=outlineMaterial;
-            float x=PinchWordBox.AcceptedWidthMeters*.5f,z=PinchWordBox.AcceptedDepthMeters*.5f;
-            outline.SetPositions(new[]{new Vector3(-x,0,-z),new Vector3(x,0,-z),new Vector3(x,0,z),new Vector3(-x,0,z)});
+            var box=root.AddComponent<PinchWordBox>();
+            box.ConfigureAtPose(new Pose(geometry.CenterWorld,geometry.Rotation));
+            box.MarkAccepted();
             return new PhysicalWordAnchor { index=index,groupId=geometry.GroupId,word=geometry.Word,
                 frameId=metadata.frameId,captureTimestampUtc=metadata.captureTimestampUtc,
                 capturedWorldPosition=position,rotation=geometry.Rotation,
@@ -813,7 +803,6 @@ namespace BrailleSoundDemo.PhysicalStory
                 Flow.ResolveWordAudioSource=null;
             }
             if(statusHint!=null) Destroy(statusHint.gameObject);
-            if(outlineMaterial != null) Destroy(outlineMaterial);
             PresentationEvents.ResetSession(workspaceCaptureSession);
             ClearAnchors();
         }

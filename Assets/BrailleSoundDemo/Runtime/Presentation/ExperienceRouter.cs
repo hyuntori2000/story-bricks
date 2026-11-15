@@ -10,6 +10,9 @@ namespace BrailleSoundDemo.Presentation
     {
         PhysicalStoryCoordinator core;
         ViewerFlow view;
+        GameObject viewRoot;
+        WorldCanvasHandInput menuInput;
+        AccessibleOnboarding onboarding;
         string experience;
         bool changingRoute;
         public bool HasView => view != null;
@@ -35,6 +38,7 @@ namespace BrailleSoundDemo.Presentation
             }
             var root=Instantiate(prefab,rig.centerEyeAnchor,false);
             root.name="Story Bricks experience UI";
+            viewRoot=root;
             root.transform.localPosition=new Vector3(0,0,1.05f);
             root.transform.localRotation=Quaternion.identity;
             root.transform.localScale=Vector3.one*.0007f;
@@ -43,14 +47,17 @@ namespace BrailleSoundDemo.Presentation
             canvas.worldCamera=rig.centerEyeAnchor.GetComponent<Camera>();
             view=root.GetComponentInChildren<ViewerFlow>(true);
             if(view==null) throw new InvalidOperationException("Story Bricks presentation prefab has no ViewerFlow.");
-            var input=root.AddComponent<WorldCanvasHandInput>();
-            input.Configure(canvas,rig,core);
+            menuInput=root.AddComponent<WorldCanvasHandInput>();
+            menuInput.Configure(canvas,rig,core);
+            onboarding=gameObject.AddComponent<AccessibleOnboarding>();
+            onboarding.Configure(rig);
+            onboarding.Ready+=OnOnboardingReady;
+            onboarding.EnterRequested+=SelectCreateWorld;
             view.CreateWorldRequested+=SelectCreateWorld;
             core.SessionEnded+=OnSessionEnded;
             core.Flow.Changed+=OnFlowChanged;
             core.Flow.StoryNarrationCompleted+=OnLiveNarrationCompleted;
-            core.ShowExperienceMenu();
-            view.ShowMenu();
+            BeginOnboarding(true);
         }
 
         public void SelectCreateWorld()
@@ -60,12 +67,16 @@ namespace BrailleSoundDemo.Presentation
             try
             {
                 if(!core.BeginExperience("demo")) return;
+                onboarding.Cancel();
+                core.SetPresentationInputBlocked(false);
+                viewRoot.SetActive(true);
+                menuInput.enabled=true;
                 experience=core.ExperienceSessionId;
                 // Close the imported menu. Create World keeps the existing physical
                 // capture, progress hint and Finish UI, without the prototype story screens.
                 view.BeginRoute("demo");
-                // The fixed welcome belongs to this newly owned Create World
-                // experience. Opening the menu itself never starts speech.
+                // This story-building introduction belongs to the newly selected experience,
+                // after the separate opening and accessibility prompt have finished.
                 bool started=core.Flow.BeginGuidedExperience();
                 core.SessionStore?.SetStage(started ? "introduction" : "error");
                 if(!started) Debug.LogError("[Experience] Could not start the guided introduction for the new experience.");
@@ -115,7 +126,23 @@ namespace BrailleSoundDemo.Presentation
         void OnSessionEnded()
         {
             experience=null;
-            view?.ShowMenu();
+            BeginOnboarding(false);
+        }
+        void BeginOnboarding(bool playOpening)
+        {
+            core.ShowExperienceMenu();
+            menuInput.enabled=false;
+            viewRoot.SetActive(false);
+            core.SetPresentationInputBlocked(true);
+            onboarding.Begin(playOpening);
+        }
+        void OnOnboardingReady()
+        {
+            if(core==null || core.ExperienceActive) return;
+            viewRoot.SetActive(true);
+            view.ShowMenu();
+            menuInput.enabled=true;
+            core.SetPresentationInputBlocked(false);
         }
         void OnDestroy()
         {
@@ -127,6 +154,12 @@ namespace BrailleSoundDemo.Presentation
                     core.Flow.Changed-=OnFlowChanged;
                     core.Flow.StoryNarrationCompleted-=OnLiveNarrationCompleted;
                 }
+            }
+            if(onboarding!=null)
+            {
+                onboarding.Ready-=OnOnboardingReady;
+                onboarding.EnterRequested-=SelectCreateWorld;
+                onboarding.Cancel();
             }
             if(view!=null) view.CreateWorldRequested-=SelectCreateWorld;
         }

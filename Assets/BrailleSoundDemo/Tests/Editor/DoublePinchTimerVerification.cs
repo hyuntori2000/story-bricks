@@ -105,6 +105,16 @@ namespace BrailleSoundDemo.Tests
             check(h.Last.CountdownSeconds==0 && h.Captures==1,"The three-second deadline captures without an extra waiting cue.");
             h=new Harness();h.Arm();armedAt=h.Policy.ArmedAt;h.At(armedAt+1.1,context:false);
             check(h.Last.CountdownSeconds==0 && h.Captures==0,"Canceling the context also cancels remaining countdown cues.");
+            // Onboarding consumes only ArmedNow, then discards the photo timer.
+            h=new Harness();h.Arm();h.Policy.Reset();
+            h.Step(left:true);h.Step(left:true);h.At(h.Now+3.1,left:true);
+            check(!h.Policy.IsArmed && h.Captures==0 && h.Arms==1,
+                "Consuming entry on the second pinch cannot become a photo or repeat while that pinch is held.");
+            h=new Harness();h.Step();h.Step(left:true);h.Policy.Reset();
+            h.Step(left:true);h.Step();h.Step(left:true);
+            check(h.Arms==0,"A pinch begun before narrator completion cannot carry into entry after reset.");
+            h.Step();h.Step(left:true);
+            check(h.Arms==1 && h.Captures==0,"A fresh released-separated pair enters immediately without a photo.");
             report.passed=true;
             Directory.CreateDirectory("Logs");
             File.WriteAllText("Logs/double-pinch-timer-verification.json",JsonUtility.ToJson(report,true));

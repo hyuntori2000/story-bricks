@@ -13,6 +13,15 @@ namespace BrailleSoundDemo.Editor
         public static void BuildQuest()
         {
             StoryBricksPresentationImport.Import();
+            var opening=Resources.Load<GameObject>("StoryBricks/Opening")?.GetComponent<OpeningAnimation>();
+            var onboardingVoice=Resources.Load<AudioClip>("StoryAudio/onboarding_ready");
+            if(opening==null || opening.baseMaterial==null || opening.font==null ||
+                onboardingVoice==null || onboardingVoice.length<=0)
+                throw new InvalidOperationException("Accessible onboarding needs its authored opening, font and narrator clip.");
+            if(opening.GetComponentsInChildren<Camera>(true).Length!=0 ||
+                opening.GetComponentsInChildren<AudioListener>(true).Length!=0 ||
+                opening.GetComponentsInChildren<OVRCameraRig>(true).Length!=0)
+                throw new InvalidOperationException("The opening must use the shared XR camera and audio listener.");
             if(TMP_Settings.instance==null) throw new InvalidOperationException("Imported UX requires Resources/TMP Settings.asset.");
             var view=Resources.Load<GameObject>("StoryBricks/View");
             if(view==null || view.GetComponentInChildren<ViewerFlow>(true)==null)

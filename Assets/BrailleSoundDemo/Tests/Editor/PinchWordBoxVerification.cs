@@ -27,6 +27,8 @@ namespace BrailleSoundDemo.Tests
             var marker=new GameObject("Temporary pinch word box");
             marker.transform.SetParent(root.transform,false);
             Material ownedMaterial=null;
+            Material ownedPlaneMaterial=null;
+            Mesh ownedPlaneMesh=null;
             try
             {
                 var box=marker.AddComponent<PinchWordBox>();
@@ -46,9 +48,35 @@ namespace BrailleSoundDemo.Tests
                     Vector3.Distance(corners[2],new Vector3(.10f,0,.06f))<.00001f &&
                     Array.TrueForAll(corners,p=>p.y==0),
                     "The outline covers twenty by twelve centimeters on the horizontal plane.");
-                check(!box.Accepted && marker.GetComponents<Collider>().Length==0,
+                check(!box.Accepted && !box.Captured && box.CapturePlane==null && marker.GetComponents<Collider>().Length==0,
                     "A newly selected target is pending and adds no physical collision geometry.");
                 Vector3 frozen=box.VisualPosition;Color pending=line.sharedMaterial.color;
+                box.MarkCaptured();
+                double capturedAt=box.CapturedAt;
+                var plane=box.CapturePlane;
+                ownedPlaneMesh=plane.GetComponent<MeshFilter>().sharedMesh;
+                ownedPlaneMaterial=plane.GetComponent<MeshRenderer>().sharedMaterial;
+                check(box.Captured && !box.Accepted && box.OutlineVisible && line.sharedMaterial.color!=pending &&
+                    box.VisualPosition==frozen && plane!=null && marker.GetComponentsInChildren<Collider>().Length==0,
+                    "Photo capture turns the current outline blue and creates one non-interactive plane before recognition.");
+                var vertices=ownedPlaneMesh.vertices;
+                Vector3 bottom=(vertices[0]+vertices[1])*.5f, rise=vertices[2]-vertices[0];
+                check(bottom==Vector3.zero && Vector3.Distance(plane.TransformPoint(bottom),box.VisualPosition)<.00001f &&
+                    Mathf.Abs(Vector3.Distance(vertices[0],vertices[1])-.20f)<.00001f &&
+                    Mathf.Abs(rise.magnitude-.12f)<.00001f &&
+                    Mathf.Abs(Vector3.Angle(rise,Vector3.forward)-65)<.001f &&
+                    Vector3.Dot(ownedPlaneMesh.normals[0],Vector3.back)>0,
+                    "The neutral twenty by twelve centimeter plane starts at the box center, rises sixty-five degrees, and faces local minus Z.");
+                box.MarkCaptured();
+                check(box.CapturedAt==capturedAt && box.CapturePlane==plane &&
+                    marker.GetComponentsInChildren<MeshRenderer>().Length==1,
+                    "Repeated capture acknowledgement does not duplicate the plane or restart its outline timer.");
+                box.RefreshCaptureVisuals(capturedAt+1.999);
+                check(box.OutlineVisible,"The blue outline remains visible immediately before its two-second deadline.");
+                box.RefreshCaptureVisuals(capturedAt+2);
+                check(!box.OutlineVisible && plane.gameObject.activeSelf && plane.GetComponent<MeshRenderer>().enabled &&
+                    box.VisualPosition==frozen,
+                    "At two seconds only the outline hides; the plane and fixed anchor remain.");
                 box.MarkAccepted();box.MarkAccepted();
                 var acceptedCorners=new Vector3[4];line.GetPositions(acceptedCorners);
                 check(Mathf.Abs(Vector3.Distance(acceptedCorners[0],acceptedCorners[1])-.04f)<.00001f &&
@@ -56,13 +84,16 @@ namespace BrailleSoundDemo.Tests
                     "Accepted words leave a four by two-and-a-half centimeter sound marker.");
                 check(box.Accepted && box.VisualPosition==frozen && box.CenterWorld==center &&
                     marker.GetComponents<LineRenderer>().Length==1 && line.sharedMaterial==ownedMaterial &&
-                    line.sharedMaterial.color!=pending,
+                    line.sharedMaterial.color!=pending && !box.OutlineVisible &&
+                    box.CapturedAt==capturedAt && box.CapturePlane==plane,
                     "Acceptance changes appearance while preserving the exact target pose, renderer and material.");
                 Vector3 replacement=new Vector3(-.2f,.8f,.1f);
                 box.Configure(replacement);
                 check(!box.Accepted && box.CenterWorld==replacement &&
                     Vector3.Distance(box.VisualPosition,replacement+Vector3.up*.01f)<.00001f &&
-                    marker.GetComponents<LineRenderer>().Length==1 && line.sharedMaterial==ownedMaterial,
+                    marker.GetComponents<LineRenderer>().Length==1 && line.sharedMaterial==ownedMaterial &&
+                    !box.Captured && box.CapturedAt<0 && box.CapturePlane==null && box.OutlineVisible &&
+                    line.sharedMaterial.color==pending && plane==null && ownedPlaneMesh==null && ownedPlaneMaterial==null,
                     "Explicit reconfiguration replaces the pending target without duplicate renderers or materials.");
                 foreach(float invalid in new[] {float.NaN,float.PositiveInfinity,float.NegativeInfinity})
                 {
@@ -98,12 +129,27 @@ namespace BrailleSoundDemo.Tests
                         Quaternion.Angle(box.RotationWorld,frozenRotation)<.001f && box.VisualPosition==frozenPosition,
                         "Invalid rotation is rejected without moving or rotating the existing target.");
                 }
+                var legacyRotation=Quaternion.Euler(12,27,4);
+                box.ConfigureAtPose(new Pose(center,legacyRotation));
+                check(Vector3.Distance(box.VisualPosition,center+legacyRotation*Vector3.up*PinchWordBox.VisualLiftMeters)<.00001f &&
+                    Quaternion.Angle(box.RotationWorld,legacyRotation)<.001f,
+                    "Fallback recognition presentation preserves its existing plane pose and sound-anchor position.");
+                box.MarkAccepted();
+                ownedPlaneMesh=box.CapturePlane.GetComponent<MeshFilter>().sharedMesh;
+                ownedPlaneMaterial=box.CapturePlane.GetComponent<MeshRenderer>().sharedMaterial;
+                box.RefreshCaptureVisuals(box.CapturedAt+2);
+                line.SetPositions(acceptedCorners);line.startWidth*=1.1f;line.endWidth*=1.1f;
+                box.MarkAccepted();
+                check(!box.OutlineVisible && box.CapturePlane.GetComponent<MeshRenderer>().enabled,
+                    "Small-marker geometry and width animation cannot revive a hidden outline or hide the plane.");
             }
             finally
             {
                 UnityEngine.Object.DestroyImmediate(root);
             }
             check(ownedMaterial==null,"Destroying the marker releases its owned outline material in edit mode.");
+            check(ownedPlaneMesh==null && ownedPlaneMaterial==null,
+                "Destroying the marker also releases its owned plane mesh and material.");
             report.passed=true;
             Directory.CreateDirectory("Logs");
             File.WriteAllText("Logs/pinch-word-box-verification.json",JsonUtility.ToJson(report,true));

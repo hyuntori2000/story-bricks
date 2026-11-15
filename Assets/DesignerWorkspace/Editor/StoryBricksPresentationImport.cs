@@ -19,6 +19,7 @@ public static class StoryBricksPresentationImport
     public static void Import()
     {
         Directory.CreateDirectory(Output);
+        EnsureOpeningPrefab();
         if (AssetDatabase.LoadAssetAtPath<GameObject>(Output + "/View.prefab") != null)
         {
             Debug.Log("[StoryBricksImport] Existing designer presentation preserved.");
@@ -88,6 +89,35 @@ public static class StoryBricksPresentationImport
             if (incoming.IsValid()) EditorSceneManager.CloseScene(incoming, true);
             AssetDatabase.DeleteAsset(Temporary);
         }
+    }
+
+    static void EnsureOpeningPrefab()
+    {
+        const string path = Output + "/Opening.prefab";
+        if (AssetDatabase.LoadAssetAtPath<GameObject>(path) != null) return;
+        const string materialPath = Output + "/OpeningMaterial.mat";
+        var material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+        if (material == null)
+        {
+            // The shared Quest project uses the built-in renderer, not the incoming URP rig.
+            var shader = Shader.Find("Sprites/Default");
+            if (shader == null) throw new InvalidOperationException("Opening transparency shader is missing.");
+            material = new Material(shader) { name = "Story Bricks opening", renderQueue = 3000 };
+            AssetDatabase.CreateAsset(material, materialPath);
+        }
+        var font = AssetDatabase.LoadAssetAtPath<TMPro.TMP_FontAsset>(
+            "Assets/DesignerWorkspace/StoryBricks/Fonts/Inter-Thin SDF.asset");
+        if (font == null) throw new InvalidOperationException("The supplied opening font is missing.");
+        var root = new GameObject("Story Bricks Opening");
+        try
+        {
+            var opening = root.AddComponent<OpeningAnimation>();
+            opening.look = OpeningAnimation.Look.Ink;
+            opening.baseMaterial = material; opening.font = font;
+            PrefabUtility.SaveAsPrefabAsset(root, path);
+            AssetDatabase.SaveAssets();
+        }
+        finally { UnityEngine.Object.DestroyImmediate(root); }
     }
 
     static void Copy(string source, string destination)
