@@ -362,7 +362,7 @@ namespace BrailleSoundDemo.PhysicalStory
                         (result.status=="retry_needed" || result.status=="needs_review"))
                     { RecognitionNeedsRetry("The word is uncertain. Adjust the blocks and capture again.",true); yield break; }
                     else if(result.analysisRevision!=lastAnalysis && result.ready)
-                        SetStatus("At least one printed label is uncertain. Center the word and capture again.");
+                        SetStatus("Turn your head toward your hands and try again.");
                     lastAnalysis=result.analysisRevision;
                 }
                 else if(!success) SetStatus("Waiting for the Mac recognition receiver; the current photo remains pending.");
@@ -634,7 +634,8 @@ namespace BrailleSoundDemo.PhysicalStory
 
         void RecognitionNeedsRetry(string message,bool requestDifferentWord=false)
         {
-            FinishWaiting(message);
+            Debug.LogWarning("[PhysicalStory] Recognition retry: "+message);
+            FinishWaiting("Turn your head toward your hands and try again.");
             var cue=requestDifferentWord ? differentWordRetry : recognitionRetry;
             PlayInputFeedback(cue);
         }

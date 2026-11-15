@@ -1,6 +1,6 @@
 # Story Bricks — development and runtime notes
 
-The accepted final demo is tagged `story-bricks-final-demo-2026-11-15`. See the [submission README](../README.md) for the current configuration and release link. The earlier checkpoint observations below are retained as development history.
+The final demo, including the requested head-position retry feedback, is tagged `story-bricks-final-demo-2026-11-15-r2`. See the [submission README](../README.md) for the current configuration and release link. The earlier checkpoint observations below are retained as development history.
 
 This repository combines the supplied Story Bricks watercolour UX with the working capture/recognition core. **Judy** plays the supplied 61.5-second Unity cutout animation, narration and sound track. **Create Your World** uses live word-building, conversation and generated animation. Designers own presentation assets; the shared core remains protected.
 

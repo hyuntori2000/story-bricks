@@ -8,7 +8,7 @@ The project explores a simple idea: **the stories children imagine should have m
 
 This is a working research/demo prototype, not a validated accessibility or educational product. The implemented interactions, evidence and remaining limitations are described below.
 
-> **Final demo submission:** [story-bricks-final-demo-2026-11-15](https://github.com/hyuntori2000/story-bricks/tree/story-bricks-final-demo-2026-11-15) · [Release notes](https://github.com/hyuntori2000/story-bricks/releases/tag/story-bricks-final-demo-2026-11-15). The project owner approved this experience after headset testing on November 15, 2026. Ongoing work stays on [dev/demo-flow-story-library](https://github.com/hyuntori2000/story-bricks/tree/dev/demo-flow-story-library); `main` remains an earlier shared baseline until an explicitly approved merge.
+> **Final demo submission:** [story-bricks-final-demo-2026-11-15-r2](https://github.com/hyuntori2000/story-bricks/tree/story-bricks-final-demo-2026-11-15-r2) · [Release notes](https://github.com/hyuntori2000/story-bricks/releases/tag/story-bricks-final-demo-2026-11-15-r2). The project owner approved this experience after headset testing on November 15, 2026. Ongoing work stays on [dev/demo-flow-story-library](https://github.com/hyuntori2000/story-bricks/tree/dev/demo-flow-story-library); `main` remains an earlier shared baseline until an explicitly approved merge.
 
 ### Accepted final demo configuration
 
@@ -18,6 +18,7 @@ This is a working research/demo prototype, not a validated accessibility or educ
 - The animation waiting screen announces **“Come back in about two minutes to watch your animation. Double pinch to go home. You can find it under See previous story.”** The estimate is not a completion guarantee.
 - Double pinch exits the animation waiting screen without a photo. The Mac accepts the job before this invitation, so rendering continues after returning Home.
 - Double pinch also exits Judy. Re-entering Judy restarts its authored visuals, narration and effects from the beginning.
+- Failed recognition uses the spoken and visible retry cue **“Turn your head toward your hands and try again.”** Recognition decisions stay unchanged; diagnostic reasons remain in the logs.
 
 This release freezes the accepted demo rather than claiming production readiness. The known tracking, recognition and generated-language limitations below remain documented. The earlier `story-bricks-demo-2026-11-15` and `pre-ux-scale-2026-11-15` tags remain available for rollback.
 
@@ -219,7 +220,7 @@ git lfs install
 git lfs pull
 ```
 
-For the exact submitted version, run `git switch --detach story-bricks-final-demo-2026-11-15` in a clean checkout after cloning. Create a development branch before making changes.
+For the exact submitted version, run `git switch --detach story-bricks-final-demo-2026-11-15-r2` in a clean checkout after cloning. Create a development branch before making changes.
 
 ### 2. Install the backend dependencies
 
