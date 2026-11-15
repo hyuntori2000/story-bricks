@@ -46,7 +46,7 @@ namespace BrailleSoundDemo.Presentation
             viewRoot.name="Story Bricks experience UI";
             viewRoot.transform.localPosition=new Vector3(0,0,1.05f);
             viewRoot.transform.localRotation=Quaternion.identity;
-            viewRoot.transform.localScale=Vector3.one*.0007f;
+            viewRoot.transform.localScale=Vector3.one*(.0007f*1.2f); // UX size trial; session action buttons have a separate root.
             var canvas=viewRoot.GetComponentInChildren<Canvas>(true);
             canvas.renderMode=RenderMode.WorldSpace;
             canvas.worldCamera=rig.centerEyeAnchor.GetComponent<Camera>();
