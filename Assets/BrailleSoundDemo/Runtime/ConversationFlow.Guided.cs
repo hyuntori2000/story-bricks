@@ -94,8 +94,7 @@ namespace BrailleSoundDemo
             if (reply.turnId != context.turnId ||
                 (reply.nextInput != BuildWordInput && reply.nextInput != SpeakAnswerInput) ||
                 string.IsNullOrWhiteSpace(reply.text) || (dialogueEvent == "start" && reply.nextInput != BuildWordInput) ||
-                (dialogueEvent == "word" && reply.nextInput !=
-                    (index == 0 && !Record.words[index].finishMarker ? BuildWordInput : SpeakAnswerInput)))
+                (dialogueEvent == "word" && reply.nextInput != SpeakAnswerInput))
             {
                 RecoverGuidedDialogueFailure("dialogue", reply, "The dialogue reply has an invalid turn or input instruction.");
                 yield break;

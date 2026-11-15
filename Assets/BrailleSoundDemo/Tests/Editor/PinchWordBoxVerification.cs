@@ -61,6 +61,10 @@ namespace BrailleSoundDemo.Tests
                 check(box.Captured && !box.Accepted && box.OutlineVisible && line.sharedMaterial.color!=pending &&
                     box.VisualPosition==frozen && plane!=null && marker.GetComponentsInChildren<Collider>().Length==0,
                     "Photo capture turns the current outline blue and creates one non-interactive plane before recognition.");
+                check(plane.GetComponent<MeshRenderer>().enabled && ownedPlaneMaterial.color.a==0 &&
+                    ownedPlaneMaterial.shader.name=="BrailleSoundDemo/Word Image Alpha" &&
+                    ownedPlaneMaterial.GetTag("RenderType",false)=="Transparent" && ownedPlaneMaterial.renderQueue>=3000,
+                    "The pending image plane is fully transparent while its renderer remains ready for a generated image.");
                 var vertices=ownedPlaneMesh.vertices;
                 Vector3 bottom=(vertices[0]+vertices[1])*.5f, rise=vertices[2]-vertices[0];
                 check(bottom==Vector3.zero && Vector3.Distance(plane.TransformPoint(bottom),box.VisualPosition)<.00001f &&
@@ -68,7 +72,7 @@ namespace BrailleSoundDemo.Tests
                     Mathf.Abs(rise.magnitude-.12f)<.00001f &&
                     Mathf.Abs(Vector3.Angle(rise,Vector3.forward)-65)<.001f &&
                     Vector3.Dot(ownedPlaneMesh.normals[0],Vector3.back)>0,
-                    "The neutral twenty by twelve centimeter plane starts at the box center, rises sixty-five degrees, and faces local minus Z.");
+                    "The transparent twenty by twelve centimeter plane starts at the box center, rises sixty-five degrees, and faces local minus Z.");
                 box.MarkCaptured();
                 check(box.CapturedAt==capturedAt && box.CapturePlane==plane &&
                     marker.GetComponentsInChildren<MeshRenderer>().Length==1,
@@ -166,6 +170,7 @@ namespace BrailleSoundDemo.Tests
                     Mathf.Abs(Vector3.Angle(rise,Vector3.forward)-65)<.001f &&
                     ownedPlaneMaterial.shader.name=="BrailleSoundDemo/Word Image Alpha" &&
                     ownedPlaneMaterial.GetTag("RenderType",false)=="Transparent" &&
+                    ownedPlaneMaterial.color==Color.white && box.CapturePlane.GetComponent<MeshRenderer>().enabled &&
                     ownedPlaneMaterial.mainTexture==ownedImage && ownedImage.GetPixel(0,0).a==0 &&
                     !box.OutlineVisible && box.CapturedAt==imageCapturedAt && box.VisualPosition==imageAnchor,
                     "A square alpha image fits twelve by twelve centimeters on the same sixty-five-degree plane without reviving its outline.");

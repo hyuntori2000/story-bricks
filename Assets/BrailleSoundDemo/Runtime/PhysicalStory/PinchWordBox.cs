@@ -19,7 +19,6 @@ namespace BrailleSoundDemo.PhysicalStory
         public const float CapturePlaneInclinationDegrees = 65;
         static readonly Color PendingColor = new Color(1f,.78f,.25f,1f);
         static readonly Color AcceptedColor = new Color(.2f,.85f,1f,1f);
-        static readonly Color PlaneColor = new Color(.9f,.9f,.86f,1f);
         LineRenderer outline;
         Material outlineMaterial;
         GameObject capturePlane;
@@ -150,6 +149,8 @@ namespace BrailleSoundDemo.PhysicalStory
         void CreateCapturePlane()
         {
             if(capturePlane!=null) return;
+            var shader=Resources.Load<Shader>("WordImageAlpha");
+            if(shader==null) throw new InvalidOperationException("Transparent capture plane shader is unavailable.");
             capturePlane=new GameObject("Captured photo plane");
             capturePlane.transform.SetParent(transform,false);
             capturePlaneMesh=new Mesh {name="Captured photo plane mesh"};
@@ -159,7 +160,8 @@ namespace BrailleSoundDemo.PhysicalStory
             capturePlaneMesh.uv=new[] {new Vector2(0,0),new Vector2(1,0),new Vector2(0,1),new Vector2(1,1)};
             capturePlaneMesh.RecalculateNormals();capturePlaneMesh.RecalculateBounds();
             capturePlane.AddComponent<MeshFilter>().sharedMesh=capturePlaneMesh;
-            capturePlaneMaterial=new Material(outlineMaterial.shader) {name="Captured photo neutral plane",color=PlaneColor};
+            // Keep the image target ready without showing a solid card while generation is pending.
+            capturePlaneMaterial=new Material(shader) {name="Captured photo transparent plane",color=Color.clear};
             var renderer=capturePlane.AddComponent<MeshRenderer>();
             renderer.sharedMaterial=capturePlaneMaterial;
             renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;

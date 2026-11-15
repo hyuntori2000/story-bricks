@@ -126,9 +126,9 @@ def allowed_next_inputs(context):
     if event == "start":
         return ["build_word"]
     if event == "word":
-        first_plain = (len(context["words"]) == 1 and not context["words"][-1]["word"].endswith(".")
-                       and not context["words"][-1].get("finishMarker", False))
-        return ["build_word"] if first_plain else ["speak_answer"]
+        # Every newly captured word opens a conversation, including the first.
+        # Ask for the next related word only after a real spoken answer is saved.
+        return ["speak_answer"]
     return ["build_word"] if spoken_answer_count(context) >= 2 else ["speak_answer", "build_word"]
 
 
@@ -150,7 +150,7 @@ def dialogue_reply(value, context):
             len(question.split()) > 35 or question.count("?") != 1 or not question.strip().endswith("?") or
             "." in question or "!" in question or
             "\n" in question or "\r" in question or
-            re.search(r"\b(?:build the word|say the sentence)\b", question, re.IGNORECASE)):
+            re.search(r"\b(?:build the word|build a word for that idea|say the sentence)\b", question, re.IGNORECASE)):
         raise GuidedError("invalid_dialogue_question", "Dialogue generation must return one short question without input directions.", 502)
     if next_input not in allowed_next_inputs(context):
         raise GuidedError("invalid_dialogue_input", "Dialogue generation selected an unavailable input action.", 502)
@@ -161,7 +161,7 @@ def dialogue_reply(value, context):
         # Preserve repeated letters; periods remain finish markers, never spoken letters.
         letters = re.findall(r"[A-Z]", context["currentWord"].upper())
         prefix = ", ".join(letters) + ". " + context["currentWord"].rstrip(".").capitalize() + "! "
-    directive = "Build the word." if next_input == "build_word" else "Say the sentence."
+    directive = "Build a word for that idea." if next_input == "build_word" else "Say the sentence."
     spoken = prefix + question + " " + directive
     return {"question": question, "nextInput": next_input, "text": spoken, "spokenText": spoken, "turnId": context["turnId"]}
 

@@ -50,7 +50,7 @@ def envelope(value, request="request-1", workspace="demo"):
 class GuidedUpstream(FakeUpstream):
     def __init__(self):
         super().__init__()
-        self.output = {"question": "What is Judy wondering about tonight?", "nextInput": "build_word"}
+        self.output = {"question": "What is Judy wondering about tonight?", "nextInput": "speak_answer"}
 
     def generate_structured(self, operation, instructions, value):
         self.calls.append((operation, copy.deepcopy(value)))
@@ -92,7 +92,7 @@ class GuidedBackendTests(unittest.TestCase):
         self.assertEqual(restarted.health()["storySentenceCount"], 7)
 
     def test_word_events_acknowledge_once_and_select_required_input(self):
-        cases = [(("JUDY",), False, "build_word"), (("JUDY", "MOON"), False, "speak_answer"),
+        cases = [(("JUDY",), False, "speak_answer"), (("JUDY", "MOON"), False, "speak_answer"),
                  (("JUDY.",), False, "speak_answer"), (("JUDY",), True, "speak_answer")]
         for number, (words, marker, expected) in enumerate(cases):
             value = context(words, "word")
@@ -102,12 +102,38 @@ class GuidedBackendTests(unittest.TestCase):
             status, result = self.dispatch(value, request="word-" + str(number))
             self.assertEqual(status, 200)
             name = words[-1].rstrip(".").capitalize()
-            directive = "Build the word." if expected == "build_word" else "Say the sentence."
+            directive = "Say the sentence."
             spelling = ", ".join(c for c in words[-1].upper() if "A" <= c <= "Z") + ". "
             self.assertEqual(result["text"], spelling + name + "! What is this adventure like? " + directive)
             self.assertEqual(result["spokenText"], result["text"])
             self.assertEqual(result["question"], "What is this adventure like?")
             self.assertEqual(result["nextInput"], expected)
+
+    def test_first_word_requires_conversation_before_a_related_build_invitation(self):
+        value = exchange(context(("CAT",), "word"), 0, "build_word",
+                         question="Who is your story about?")
+        self.upstream.output = {"question": "Where will your cat go?", "nextInput": "build_word"}
+        status, result = self.dispatch(value, request="early-build")
+        self.assertEqual((status, result["code"]), (502, "invalid_dialogue_input"))
+        self.assertFalse(any(call[0] == "speech" for call in self.upstream.calls))
+
+        self.upstream.output = {"question": "What does your cat want to do today?", "nextInput": "speak_answer"}
+        status, result = self.dispatch(value, request="cat-question")
+        self.assertEqual(status, 200)
+        self.assertEqual(result["spokenText"],
+                         "C, A, T. Cat! What does your cat want to do today? Say the sentence.")
+        self.assertNotIn("Build", result["spokenText"])
+
+        value["dialogueEvent"] = "answer"
+        exchange(value, 0, "speak_answer", "She wants to visit the moon.",
+                 question=result["question"])
+        self.upstream.output = {"question": "What could help your cat reach the moon?", "nextInput": "build_word"}
+        status, result = self.dispatch(value, request="related-build")
+        self.assertEqual(status, 200)
+        self.assertEqual(result["spokenText"],
+                         "What could help your cat reach the moon? Build a word for that idea.")
+        self.assertEqual(self.upstream.calls[-2][1]["turns"][-1]["answer"],
+                         "She wants to visit the moon.")
 
     def test_spelling_preserves_letters_and_excludes_finish_markers(self):
         for word, prefix in [("MOON.", "M, O, O, N. Moon! "), ("a", "A. A! "),
@@ -116,8 +142,7 @@ class GuidedBackendTests(unittest.TestCase):
             value = context((word,), "word")
             guided.validate_context(value, "dialogue")
             reply = guided.dialogue_reply({"question": "Where will it go?", "nextInput": guided.allowed_next_inputs(value)[0]}, value)
-            self.assertEqual(reply["spokenText"], prefix + "Where will it go? " +
-                             ("Build the word." if reply["nextInput"] == "build_word" else "Say the sentence."))
+            self.assertEqual(reply["spokenText"], prefix + "Where will it go? Say the sentence.")
             self.assertEqual(value["currentWord"], word)
         value = context(("MOON", "MOON"), "answer")
         exchange(value, 1, "speak_answer", "It feels soft.")
@@ -210,7 +235,7 @@ class GuidedBackendTests(unittest.TestCase):
     def test_schema_requests_use_strict_responses_shape_and_handle_refusal(self):
         upstream = lb.OpenAIUpstream(lb.Settings("fake-test-key"))
         value = context(("JUDY",), "word")
-        output = {"question": "Where will Judy go?", "nextInput": "build_word"}
+        output = {"question": "Where will Judy go?", "nextInput": "speak_answer"}
         response = {"status": "completed", "output": [{"type": "message", "content": [
             {"type": "output_text", "text": json.dumps(output)}]}]}
         with patch.object(upstream, "_http", return_value=json.dumps(response).encode()) as http:
@@ -219,7 +244,7 @@ class GuidedBackendTests(unittest.TestCase):
         self.assertEqual(http.call_count, 1)
         shape = payload["text"]["format"]
         self.assertEqual((shape["type"], shape["strict"]), ("json_schema", True))
-        self.assertEqual(shape["schema"]["properties"]["nextInput"]["enum"], ["build_word"])
+        self.assertEqual(shape["schema"]["properties"]["nextInput"]["enum"], ["speak_answer"])
         self.assertFalse(payload["store"])
         story_array = guided.response_schema("story", value)["properties"]["sentences"]
         self.assertEqual((story_array["minItems"], story_array["maxItems"]), (7, 7))

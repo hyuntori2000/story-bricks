@@ -28,7 +28,7 @@ namespace BrailleSoundDemo.Tests
                 while (Hold) yield return null;
                 DuringReply?.Invoke();
                 if (Fail) { completed(new StoryReply { error = "Offline obsolete follow-up failure." }); yield break; }
-                completed(new StoryReply { text = NextInput == "build_word" ? "Build the word." : "What does it feel like? Say the sentence.",
+                completed(new StoryReply { text = NextInput == "build_word" ? "What could help with that idea? Build a word for that idea." : "What does it feel like? Say the sentence.",
                     nextInput = NextInput, turnId = WrongTurn ? Guid.NewGuid().ToString("N") : context.turnId, audioClip = Clip });
             }
             public IEnumerator Story(StoryContext context, Action<StoryReply> completed)
@@ -86,19 +86,24 @@ namespace BrailleSoundDemo.Tests
                 string intro = f.Provider.LastContext.turnId;
                 Require(f.Flow.ReadyForPhysicalWord && f.Flow.Record.words.Count == 0 && !f.Flow.CanAnswer,
                     "Intro opens build input without a word or microphone.");
-                f.Word("JUDY", "build_word");
+                f.Word("JUDY", "speak_answer");
                 Require(f.Flow.Record.turns.Count == 1 && f.Flow.Record.turns[0].turnId == intro &&
-                    f.Flow.Record.turns[0].inputType == "build_word" && f.Flow.CanComplete(1),
-                    "The first word answers the actual intro and permits another build without a spoken answer.");
+                    f.Flow.Record.turns[0].inputType == "build_word" && f.Flow.CanAnswer && !f.Flow.CanComplete(1),
+                    "The first word answers the actual intro, then waits for a spoken answer before another build.");
+                f.Answer("Judy is wondering about the moon.", "build_word");
+                Require(f.Flow.ReadyForPhysicalWord && f.Flow.Record.turns.Count == 2 &&
+                    f.Flow.Record.turns[1].wordIndex == 0 && f.Flow.Record.turns[1].inputType == "speak_answer" &&
+                    f.Flow.CurrentPrompt == "What could help with that idea? Build a word for that idea.",
+                    "A saved first-word answer opens the related next-word invitation.");
                 f.Word("MOON", "speak_answer");
                 Require(f.Flow.CanAnswer && !f.Flow.CanComplete(2), "A spoken prompt keeps queued words from consuming it.");
                 string first = f.Provider.LastContext.turnId;
                 f.Answer("Soft bread dough.", "speak_answer");
                 string second = f.Provider.LastContext.turnId;
                 f.Answer("It hums.", "build_word");
-                Require(first != second && f.Flow.Record.words.Count == 2 && f.Flow.Record.turns.Count == 4 &&
-                    f.Flow.Record.turns[2].turnId == first && f.Flow.Record.turns[3].turnId == second &&
-                    f.Flow.Record.turns[2].wordIndex == 1 && f.Flow.Record.turns[3].wordIndex == 1 && f.Flow.CanComplete(2),
+                Require(first != second && f.Flow.Record.words.Count == 2 && f.Flow.Record.turns.Count == 5 &&
+                    f.Flow.Record.turns[3].turnId == first && f.Flow.Record.turns[4].turnId == second &&
+                    f.Flow.Record.turns[3].wordIndex == 1 && f.Flow.Record.turns[4].wordIndex == 1 && f.Flow.CanComplete(2),
                     "Two actual spoken turns remain attached to one word and then return to build input.");
                 f.Word("KITE", "speak_answer");
                 f.Provider.DuringReply = () => f.Flow.SetFinishPending();
@@ -119,7 +124,8 @@ namespace BrailleSoundDemo.Tests
             }
             using (var f = new Fixture())
             {
-                f.Word("JUDY", "build_word"); f.Word("MOON", "speak_answer");
+                f.Word("JUDY", "speak_answer"); f.Answer("Judy wants to travel.", "build_word");
+                f.Word("MOON", "speak_answer");
                 f.Provider.Fail = true;
                 f.Provider.DuringReply = () => f.Flow.SetFinishPending();
                 f.Answer("It glows.", "speak_answer");
@@ -140,7 +146,8 @@ namespace BrailleSoundDemo.Tests
             }
             using (var f = new Fixture())
             {
-                f.Word("JUDY", "build_word"); f.Word("MOON", "speak_answer");
+                f.Word("JUDY", "speak_answer"); f.Answer("Judy wants to travel.", "build_word");
+                f.Word("MOON", "speak_answer");
                 f.Answer("Bread dough.", "speak_answer");
                 int saved = f.Flow.Record.turns.Count;
                 Require(f.Flow.CreateStoryFromSavedProgress(useLiveProvider: false) &&
@@ -152,7 +159,7 @@ namespace BrailleSoundDemo.Tests
             using (var f = new Fixture())
             {
                 f.Provider.WrongTurn = true;
-                f.Word("JUDY", "build_word");
+                f.Word("JUDY", "speak_answer");
                 Require(f.Flow.State == ConversationState.Error && f.Flow.Record.words.Count == 1 && f.Flow.Record.turns.Count == 1,
                     "A mismatched reply turn cannot open input or discard saved words/exchanges.");
                 var late = f.Provider.Callback;
@@ -161,6 +168,13 @@ namespace BrailleSoundDemo.Tests
                 Require(!f.Flow.GuidedDialogueEnabled && f.Flow.Record.words.Count == 0 && f.Flow.State == ConversationState.Ready,
                     "A callback from a reset guided session cannot alter the new session.");
             }
+            using (var f = new Fixture())
+            {
+                f.Word("JUDY", "build_word");
+                Require(f.Flow.State == ConversationState.Error && !f.Flow.ReadyForPhysicalWord && !f.Flow.CanAnswer &&
+                    f.Flow.Record.words.Count == 1 && f.Flow.Record.turns.Count == 1,
+                    "A provider cannot skip the first word's conversation by requesting another word immediately.");
+            }
             VerifyImmediateWordSound();
             Debug.Log("GUIDED_DIALOGUE_VERIFICATION_PASSED " + checks);
         }
@@ -168,7 +182,7 @@ namespace BrailleSoundDemo.Tests
         {
             using (var f = new Fixture())
             {
-                f.Word("JUDY", "build_word");
+                f.Word("JUDY", "speak_answer");
                 Require(!f.Flow.Record.turns.Exists(turn => turn.inputType == "speak_answer"),
                     "The first word sound fixture has no spoken-answer context.");
                 var palette = f.Flow.Palette;
