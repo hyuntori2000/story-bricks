@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f5ec">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23284e40'/%3E%3Cg fill='%23f8f5ec'%3E%3Ccircle cx='14' cy='12' r='3'/%3E%3Ccircle cx='26' cy='12' r='3'/%3E%3Ccircle cx='14' cy='20' r='3'/%3E%3Ccircle cx='26' cy='20' r='3'/%3E%3Ccircle cx='14' cy='28' r='3'/%3E%3Ccircle cx='26' cy='28' r='3'/%3E%3C/g%3E%3C/svg%3E">
+  <meta name="description" content="Learn to scan Story Bricks in four illustrated steps. Arrange your word, pinch twice, move your hands away, and listen.">
+  <title>How to scan · Story Bricks</title>
+  <style>
+    :root{--paper:#f8f5ec;--ink:#293c35;--muted:#66736a;--line:#dddcd1;--green:#284e40;--yellow:#e5b338}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:ui-rounded,"Avenir Next",Avenir,system-ui,sans-serif;font-size:16px;-webkit-font-smoothing:antialiased}
+    button,a{-webkit-tap-highlight-color:transparent}button{font:inherit}a{color:inherit;text-underline-offset:4px}button:focus-visible,a:focus-visible{outline:3px solid #386ad0;outline-offset:5px}button{cursor:pointer}header,main,footer{max-width:1200px;margin:auto}header{padding:28px 32px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.brand{display:flex;gap:12px;align-items:center;text-decoration:none;font-size:21px;font-weight:800;letter-spacing:-.8px}.mark{display:grid;grid-template-columns:repeat(2,7px);gap:4px;transform:rotate(-9deg)}.mark i{height:7px;border-radius:50%;background:var(--green)}.toplink{font-size:14px;font-weight:600}main{padding:49px 32px 32px}.intro{display:flex;align-items:flex-end;justify-content:space-between;gap:36px;margin-bottom:34px}.eyebrow{text-transform:uppercase;font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 12px;color:#65715e}h1{font-size:clamp(36px,4.6vw,58px);letter-spacing:-2.5px;line-height:1.07;font-weight:650;margin:0}h1 em{font-family:Georgia,serif;font-weight:400;color:#617b54}.intro>p{max-width:260px;color:var(--muted);line-height:1.65;margin:0 0 3px;font-size:15px}.guide{display:grid;grid-template-columns:340px 1fr;gap:30px;align-items:stretch}.steps{display:flex;flex-direction:column;gap:8px;padding:8px 0}.step{display:flex;gap:16px;align-items:flex-start;text-align:left;border:1px solid transparent;border-radius:15px;background:transparent;color:var(--ink);padding:19px 17px;transition:background .15s,border-color .15s}.step:hover{background:#eeeee3}.step[aria-pressed=true]{background:#fffef8;border-color:#d2d6c5;box-shadow:0 3px 0 #e8e7dc}.num{flex-shrink:0;width:33px;height:33px;display:grid;place-items:center;border:1px solid #bec6b8;border-radius:50%;font-size:13px;font-weight:700}.step[aria-pressed=true] .num{background:var(--green);border-color:var(--green);color:white}.step strong{display:block;font-size:18px;letter-spacing:-.3px;line-height:1.5}.step small{display:block;font-size:14px;line-height:1.55;color:var(--muted);margin-top:4px}.viewer{min-width:0;background:#eeeede;border-radius:22px;overflow:hidden;border:1px solid #e1e3d2;display:flex;flex-direction:column}.art{width:100%;display:block;aspect-ratio:680/390;height:auto}.panel[hidden]{display:none}.panel{flex:1}.caption{padding:0 30px 22px}.caption h2{font-size:23px;letter-spacing:-.7px;margin:0 0 8px;font-weight:650}.caption p{color:#526053;font-size:15px;line-height:1.65;margin:0;max-width:520px}.nav{border-top:1px solid #d7dcc9;margin:0 30px;padding:16px 0;display:flex;align-items:center;justify-content:space-between;gap:18px}.nav span{font-size:12px;color:#5f6c5f}.navbuttons{display:flex;gap:10px}.nav button{border:1px solid #bdc6b1;border-radius:50%;height:39px;width:39px;background:transparent;color:var(--green);font-size:20px}.nav button:last-child{background:var(--green);color:#fff;border-color:var(--green)}.nav button:disabled{opacity:.3;cursor:default}.tip{margin-top:30px;display:flex;align-items:center;gap:18px;border-top:1px solid var(--line);padding:27px 0 5px}.tip-icon{border:1px solid #c9cdbd;border-radius:50%;flex-shrink:0;width:34px;height:34px;display:grid;place-items:center;font-family:Georgia,serif;font-style:italic;font-size:20px}.tip h2{font-size:15px;margin:0 0 5px}.tip p{font-size:14px;color:var(--muted);line-height:1.65;margin:0}.tip .tip-copy{flex:1}.reset{font-size:13px;white-space:nowrap;background:none;border:0;color:var(--green);text-decoration:underline;text-underline-offset:4px;padding:10px}footer{padding:22px 32px 26px;display:flex;justify-content:space-between;gap:20px;font-size:11px;color:#7c8479}noscript{display:block;padding:20px;border:1px solid var(--line)}
+    @media(min-width:1400px){main{padding-top:64px}.intro{margin-bottom:42px}}
+    @media(max-width:800px){header{padding:22px 22px}main{padding:32px 22px 16px}.intro{display:block;margin-bottom:26px}.intro>p{max-width:none;margin-top:18px}.guide{grid-template-columns:1fr;gap:18px}.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:0}.step{padding:12px 4px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;border-radius:12px}.step strong{font-size:12px;line-height:1.35}.step small{display:none}.num{width:28px;height:28px;font-size:11px}.caption{padding:0 22px 22px}.caption h2{font-size:22px}.nav{margin:0 22px}.tip{align-items:flex-start;flex-wrap:wrap;gap:12px}.reset{margin-left:35px}.tip-copy{min-width:220px}footer{padding:20px 22px;flex-wrap:wrap}.art{aspect-ratio:680/410}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+    @media(max-width:800px){.desktop-break{display:none}}
+    @media print{header .toplink,.nav,.steps,.reset{display:none}.guide{display:block}.viewer{background:white;border:0}.panel[hidden]{display:block}.panel{break-inside:avoid;margin-bottom:25px}.art{height:230px}.intro{margin-bottom:15px}footer{display:none}}
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="#top" aria-label="Story Bricks, back to top"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>story bricks</a>
+    <a class="toplink" href="#help">Need a little help? ↗</a>
+  </header>
+  <main id="top">
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow">A quick guide to scanning</p><h1>Small bricks.<br><em>Big beginnings.</em></h1></div>
+      <p>Put on your headset and open Create Your World. Your first word is just four little steps away.</p>
+    </section>
+    <section class="guide" aria-label="Four steps to scan a word">
+      <nav class="steps" aria-label="Choose a step">
+        <button class="step" type="button" data-step="0" aria-pressed="true" aria-controls="panel-0"><span class="num">01</span><span><strong>Build your word</strong><small>One row. All letters facing you.</small></span></button>
+        <button class="step" type="button" data-step="1" aria-pressed="false" aria-controls="panel-1"><span class="num">02</span><span><strong>Pinch twice</strong><small>Just above your row of bricks.</small></span></button>
+        <button class="step" type="button" data-step="2" aria-pressed="false" aria-controls="panel-2"><span class="num">03</span><span><strong>Hands away</strong><small>Look at your word. Wait 3 seconds.</small></span></button>
+        <button class="step" type="button" data-step="3" aria-pressed="false" aria-controls="panel-3"><span class="num">04</span><span><strong>Listen & imagine</strong><small>Hear your word. Answer the question.</small></span></button>
+      </nav>
+      <div class="viewer">
+        <div id="panels"></div>
+        <div class="nav"><span id="progress" aria-live="polite" aria-atomic="true">Step 1 of 4 · Build your word</span><div class="navbuttons"><button id="prev" type="button" aria-label="Previous step" disabled>←</button><button id="next" type="button" aria-label="Next step">→</button></div></div>
+      </div>
+    </section>
+    <noscript>Build one aligned row of bricks with the printed letters facing you. Pinch your thumb and index finger together twice above the word. Move your hands away, keep looking at the word, and wait 3 seconds. Listen to the spelling and question, then speak after the ready tone.</noscript>
+    <aside class="tip" id="help" aria-labelledby="help-title"><span class="tip-icon" aria-hidden="true">i</span><div class="tip-copy"><h2 id="help-title">Didn't catch your word?</h2><p>Turn your head toward your hands and try again. Keep the full word inside the yellow box,<br class="desktop-break"> use good lighting, and move your hands out of the way before the photo.</p></div><button class="reset" id="restart" type="button">Back to step one ↗</button></aside>
+  </main>
+  <footer><span>A little imagination goes a long way.</span><span>Illustrated guide only · No camera or app connection</span></footer>
+  <script>
+    // Entirely local illustrations and navigation. No camera, API, analytics or network requests.
+    const colors = ['#df9877','#e6c15a','#a9bc8d','#9db8c3'];
+    const letters = ['M','O','O','N'];
+    const dotPatterns = [[1,3,4],[1,3,5],[1,3,5],[1,3,4,5]];
+    const dots = (pattern) => [1,2,3,4,5,6].map(n => {
+      const x = n <= 3 ? 24 : 49, y = 25 + ((n-1)%3)*22;
+      return pattern.includes(n) ? `<ellipse cx="${x}" cy="${y+3}" rx="7" ry="6" fill="#293c35" opacity=".13"/><circle cx="${x}" cy="${y}" r="7" fill="#fff8e7" opacity=".86"/><circle cx="${x-2}" cy="${y-2}" r="2" fill="white" opacity=".7"/>` : '';
+    }).join('');
+    const row = (x=186,y=156) => `<g transform="translate(${x} ${y}) rotate(-6 156 58)">${letters.map((l,i)=>`<g transform="translate(${i*77} 0)"><rect x="0" y="6" width="73" height="111" rx="9" fill="#46564a" opacity=".22"/><rect width="73" height="109" rx="9" fill="${colors[i]}" stroke="#59664f" stroke-opacity=".23"/>${dots(dotPatterns[i])}<text x="36" y="96" text-anchor="middle" font-size="21" font-weight="700" fill="#35453b">${l}</text></g>`).join('')}</g>`;
+    const frame = (color='#d4a124') => `<g transform="rotate(-6 340 213)" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"><rect x="159" y="132" width="363" height="165" rx="9" opacity=".4"/><path d="M159 161v-20q0-9 9-9h22m301 0h22q9 0 9 9v20M159 268v20q0 9 9 9h22m301 0h22q9 0 9-9v-20"/></g>`;
+    const table = `<ellipse cx="341" cy="270" rx="243" ry="65" fill="#dce0cb"/><path d="M79 296L541 344l94-87" fill="none" stroke="#d1d7c2" stroke-width="1.5"/>`;
+    const label = (x,y,text) => `<text x="${x}" y="${y}" text-anchor="middle" fill="#62745e" font-size="13" letter-spacing=".5">${text}</text>`;
+    const hand = `<g fill="#ecc6a1" stroke="#846b53" stroke-width="2.5" stroke-linejoin="round"><path d="M430 105l-17-20c-8-10-21-14-31-8l-27 17c-7 4-8 12-3 17s12 5 18 1l18-11 10 13-24 24c-8 8-8 19 0 26l13 13c11 11 28 14 42 7l18-9 44 36 40-48-55-44-12-48c-2-10-15-13-21-6-3 4-3 8-2 13l5 26-16 1z"/><path d="M398 114l14 14c6 6 6 14 0 20l-14 14M430 105l12 16" fill="none" stroke-linecap="round"/></g>`;
+    const svg = (content,labelText) => `<svg class="art" viewBox="0 0 680 390" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${labelText}" font-family="Avenir Next, system-ui, sans-serif">${content}</svg>`;
+    const steps = [
+      {title:'Make room for a little imagination.',short:'Build your word',text:'Arrange your bricks in one straight row on the table. Keep the printed letters facing you. Touching bricks are OK.',alt:'Four aligned bricks spell MOON, with the printed letters facing the wearer.',art:table+row()+`<path d="M183 312q160 36 321-20" fill="none" stroke="#7a8d6b" stroke-width="2" stroke-dasharray="4 6"/>`+label(342,349,'Letters facing you')+`<path d="M340 116v-30m-6 6 6-6 6 6" stroke="#7a8d6b" stroke-width="2" fill="none"/>`+label(340,66,'One aligned row')},
+      {title:'Two pinches. Right above your word.',short:'Pinch twice',text:'Look toward your hands and bricks. Bring your thumb and index finger together twice above the word. A yellow capture box will appear.',alt:'A hand pinches thumb and index finger above the MOON bricks. Two pinch marks indicate a double pinch; a yellow frame surrounds the word.',art:table+row()+frame()+hand+`<g fill="none" stroke="#c79628" stroke-width="3" stroke-linecap="round"><path d="M351 132l-12 4m16 9-7 9m-1-36-12-4"/></g><circle cx="514" cy="73" r="27" fill="#fbf7de" stroke="#d5bd73"/><text x="514" y="80" text-anchor="middle" font-size="20" fill="#71591e" font-weight="700">×2</text>`+label(339,343,'Pinch above the bricks, not on a button')},
+      {title:'Give your word the whole spotlight.',short:'Hands away',text:'Move both hands out of the box. Keep your head aimed at the word and wait 3 seconds after the second pinch. The box turns blue after the photo is taken.',alt:'The MOON bricks sit unobstructed inside the yellow capture frame. A 3-second timer reminds you to move your hands away while looking at the word.',art:table+row()+frame()+`<g transform="translate(340 76)"><circle r="31" fill="#faf8e9" stroke="#bfcbad" stroke-width="2"/><text y="7" text-anchor="middle" font-size="23" font-weight="700" fill="#3e5b44">3s</text></g><g fill="none" stroke="#8c9e7e" stroke-width="2.5" stroke-linecap="round"><path d="M126 175q-29-29-38-59m-8 12 8-12 13 8M551 175q29-29 38-59m8 12-8-12-13 8"/></g>`+label(340,344,'Clear view. Steady head. Hands away.')},
+      {title:'Listen. Your story is beginning.',short:'Listen & imagine',text:'Hear the letters, then a question about your word. After the ready tone, share your answer. Let your imagination lead the way.',alt:'A headset with sound waves appears above the captured word. A speech bubble says M-O-O-N. Moon! What does the moon look like?',art:`<g transform="translate(247 54)"><path d="M16 42C18-9 165-9 170 42" fill="none" stroke="#82947c" stroke-width="12"/><rect x="0" y="31" width="187" height="86" rx="33" fill="#fffdf3" stroke="#bfc8b4" stroke-width="2"/><path d="M15 88q25 23 61 14l16-10 16 10q35 9 64-14" fill="#dbe1ce"/><circle cx="32" cy="62" r="4" fill="#8b9c80"/><circle cx="155" cy="62" r="4" fill="#8b9c80"/></g><g stroke="#7a9271" stroke-width="3" fill="none" stroke-linecap="round"><path d="M228 101q-13 15 0 30m-15-42q-23 26 0 54M452 101q13 15 0 30m15-42q23 26 0 54"/></g><path d="M164 189h352q17 0 17 17v72q0 17-17 17H350l-19 16-4-16H164q-17 0-17-17v-72q0-17 17-17z" fill="#fffdf3" stroke="#ced5be"/><text x="340" y="233" text-anchor="middle" font-size="22" fill="#35533d" font-weight="600">“M-O-O-N. Moon!”</text><text x="340" y="268" text-anchor="middle" font-size="16" fill="#65735f">“What does the moon look like?”</text>`+label(340,346,'An example question — yours may be different')}
+    ];
+    const panels = document.getElementById('panels');
+    panels.innerHTML = steps.map((s,i)=>`<section class="panel" id="panel-${i}" aria-labelledby="heading-${i}" ${i?'hidden':''}>${svg(s.art,s.alt)}<div class="caption"><h2 id="heading-${i}">${s.title}</h2><p>${s.text}</p></div></section>`).join('');
+    let current = 0;
+    const buttons = [...document.querySelectorAll('[data-step]')];
+    function select(index){
+      current = Math.max(0,Math.min(steps.length-1,index));
+      buttons.forEach((b,i)=>b.setAttribute('aria-pressed',String(i===current)));
+      document.querySelectorAll('.panel').forEach((p,i)=>p.hidden=i!==current);
+      document.getElementById('progress').textContent=`Step ${current+1} of 4 · ${steps[current].short}`;
+      document.getElementById('prev').disabled=current===0;
+      document.getElementById('next').disabled=current===steps.length-1;
+    }
+    buttons.forEach((b,i)=>b.addEventListener('click',()=>select(i)));
+    document.getElementById('prev').addEventListener('click',()=>select(current-1));
+    document.getElementById('next').addEventListener('click',()=>select(current+1));
+    document.getElementById('restart').addEventListener('click',()=>{select(0);buttons[0].focus();});
+  </script>
+</body>
+</html>
