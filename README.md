@@ -51,6 +51,8 @@ The scripts support `UNITY_EDITOR` and `ADB` overrides. Designers do not need AP
 
 Designers use `design/*` branches and only their three folders above. Preserve Unity `.meta` files. The repository includes English AI instructions, CODEOWNERS and a design-boundary check. Those are review controls; they are not a local filesystem lock. Do not merge core changes without the owner's review.
 
+GitHub declined enforced branch protection for this private repository on the current account plan. Review design pull requests manually before merging, and do not push design work directly to `main`.
+
 Capture files, local keys, virtual environments, generated builds and temporary experiments are excluded from Git. Unity scenes are preserved during normal builds.
 
 The supplied Judy reference is **JUDY → FOX → RAIN → TREE**. Actual designer UX/media files still need to be added. Automatic Orbis generation and public video sharing are not connected. Extra dashboard/UX scaffolding is intentionally not included in this simple handoff.
