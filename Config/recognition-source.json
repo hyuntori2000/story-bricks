@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/wogur110/LEGO_OCR.git",
-  "commit": "cd611c162761bf9d0dc12eae1cbd5c7147a84990",
+  "commit": "f7e87b3438a656b26b1f6fb901c2449686a8f86e",
   "directory": "External/LEGO_OCR",
-  "requirements": "requirements-ocr.txt",
+  "requirements": "requirements.txt",
   "python": "3.12"
 }

@@ -621,12 +621,24 @@ class FrameHandler(BaseHTTPRequestHandler):
                                  "recognitionMethod": getattr(self.server.store.recognizer, "recognition_method", "legacy_or_custom"),
                                  "recognitionInput": getattr(self.server.store.recognizer, "recognition_input", "full_frame"),
                                  "recognitionProvenance": getattr(self.server.store.recognizer, "recognition_provenance", {}),
+                                 "recognitionHistoryUrl": "/recognition-history.json",
                                  "archiveEnabled": self.server.store.archive_dir is not None,
                                  "cropArchiveEnabled": self.server.store.archive_dir is not None,
                                  "archiveDirectory": str(self.server.store.archive_dir) if self.server.store.archive_dir else None,
                                  "receivedCount": self.server.store.snapshot()["receivedCount"]})
         elif path == "/latest.json":
             self.send_json(200, self.server.store.snapshot())
+        elif path == "/recognition-history.json":
+            query = parse_qs(urlsplit(self.path).query)
+            try:
+                limit = max(1, min(int(query.get("limit", ["200"])[0]), 1000))
+            except ValueError:
+                self.send_json(400, {"error": "invalid_limit", "detail": "limit must be an integer"})
+                return
+            # Do not call FrameStore.snapshot or acquire the capture lock here.
+            history = getattr(self.server.store, "recognition_history", None)
+            self.send_json(200, history.snapshot(limit) if history is not None else
+                           {"schemaVersion": 1, "records": [], "retainedCount": 0})
         elif path == "/latest-crop.png":
             query = parse_qs(urlsplit(self.path).query)
             try:

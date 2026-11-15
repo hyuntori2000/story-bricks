@@ -19,7 +19,7 @@ _PROJECT_SOURCE = Path(__file__).resolve().parents[1] / "External" / "LEGO_OCR"
 SOURCE = Path(os.environ.get("LEGO_OCR_PATH", _PROJECT_SOURCE if _PROJECT_SOURCE.is_dir()
                              else Path(__file__).resolve().parents[2] / "LEGO_OCR"))
 if not (SOURCE / "ocr_reader.py").is_file():
-    raise RuntimeError("Update LEGO_OCR to a revision with ocr_reader.py and requirements-ocr.txt")
+    raise RuntimeError("Run python3.12 Tools/setup-team.py --backend to install the pinned LEGO_OCR source")
 if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 from braille_geometry import validate_layout, project  # noqa: E402

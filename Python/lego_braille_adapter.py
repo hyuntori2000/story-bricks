@@ -15,7 +15,9 @@ from time import perf_counter
 import cv2
 import numpy as np
 
-SOURCE = Path(os.environ.get("LEGO_OCR_PATH", Path(__file__).resolve().parents[2] / "LEGO_OCR"))
+_PROJECT_SOURCE = Path(__file__).resolve().parents[1] / "External" / "LEGO_OCR"
+SOURCE = Path(os.environ.get("LEGO_OCR_PATH", _PROJECT_SOURCE if _PROJECT_SOURCE.is_dir()
+                             else Path(__file__).resolve().parents[2] / "LEGO_OCR"))
 if not (SOURCE / "braille_reader.py").is_file():
     raise RuntimeError("LEGO_OCR/braille_reader.py is required; preserve the original repository")
 if str(SOURCE) not in sys.path:

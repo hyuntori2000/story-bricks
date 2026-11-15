@@ -47,6 +47,18 @@ These commands build the shared baseline scene. To test your own UX scene on Que
 
 The scripts support `UNITY_EDITOR` and `ADB` overrides. Designers do not need API keys to edit prefabs or prepared media. The OCR source is pinned in `Config/recognition-source.json` and installed under ignored `External/LEGO_OCR`.
 
+### Parallel recognition experiment (development branch)
+
+The receiver now defaults to `--recognition parallel`. OCR and six-dot reading run concurrently on the same saved native target crop. The first complete accepted word is returned to Unity; a fast failure waits for the other reader. Both failing requests a new photo. A later result never replaces the selected word.
+
+The pinned upstream OCR and braille readers are unchanged. Their supplied `CombinedReader` has OCR-priority behavior, so this experiment uses a separate first-success dispatcher. Each branch uses the existing automatic full-face locator. If faces cannot be resolved, the OCR branch retains automatic printed-label detection with the upstream model and normalization rules; the dashboard records which path ran. OCR's upstream score threshold is 0.85. Only A–Z and periods are accepted, with at least one letter and no dictionary correction.
+
+The existing capture monitor has a plain history table showing the winner, both results/failure reasons, both elapsed times, and disagreement. The slower reader always finishes. Elapsed time starts at receiver recognition entry and includes any previous-worker wait, crop preparation, geometry and decoding; it excludes the three-second capture timer, network upload and archive saving. `executionMs` additionally records each worker's execution time. These are latency measurements, not measured recognition accuracy.
+
+All updates append to `runtime/physical-story-captures/recognition-history.jsonl` and survive a receiver restart. The dashboard shows the latest 200 captures through `/recognition-history.json`; logs and images stay out of Git. Only one pair of readers is active at a time, so a new capture drains the previous late result before starting. Use `--recognition ocr` or `--recognition braille` for a single-reader comparison.
+
+Focused offline checks: `Python/.ocr-venv/bin/python -m unittest discover -s Python -p test_parallel_recognition.py`. Real Quest captures are still needed before recommending this experiment for `main`.
+
 ## Keep changes separate
 
 Owner/backend development uses `dev/core-functions` (or `dev/<task>` for a separate task). Commit and push development changes there. Keep `main` as the shared baseline; recommend merging after the relevant checks and device testing, and merge only when the owner explicitly requests it.

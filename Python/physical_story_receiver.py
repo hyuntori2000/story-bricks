@@ -1,4 +1,4 @@
-"""Main-app timed capture with automatic local printed-label OCR by default.
+"""Main-app timed capture with parallel local OCR and six-dot recognition.
 
 No new calibration, spelling correction, or cloud vision API. The legacy manual
 adapter remains available for compatibility tests; the main CLI always uses auto.
@@ -52,6 +52,14 @@ def build_store(output_dir, saved_references=None, automatic=False, recognition_
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
     os.environ["TABLE_DEPTH_OUTPUT"] = str(output)
+    if recognition_mode == "parallel":
+        from parallel_recognition import ParallelRecognizer
+        from recognition_history import RecognitionHistory
+        history = RecognitionHistory(output / "recognition-history.jsonl")
+        reader = ParallelRecognizer(history)
+        store = FrameStore(output, reader, archive_dir=archive_dir)
+        store.recognition_history = history
+        return store
     if recognition_mode in ("ocr", "braille"):
         if recognition_mode == "ocr":
             from lego_ocr_adapter import recognize as read_local, PROVENANCE, METHOD
@@ -79,7 +87,7 @@ def build_store(output_dir, saved_references=None, automatic=False, recognition_
         local_recognizer.recognition_description = METHOD
         return FrameStore(output, local_recognizer, archive_dir=archive_dir)
     if recognition_mode != "color":
-        raise ValueError("recognition_mode must be ocr, braille or color")
+        raise ValueError("recognition_mode must be parallel, ocr, braille or color")
     # Legacy color mode is opt-in and requires an older upstream checkout.
     # The current upstream intentionally removed its color-reader modules.
     from lego_color_adapter import ColorSession
@@ -203,10 +211,19 @@ async function refresh(){
 }
 refresh();setInterval(refresh,300);
 </script></html>'''
-    active_mode = recognition_mode if recognition_mode in ("ocr", "braille", "color") else "unknown"
+    active_mode = recognition_mode if recognition_mode in ("parallel", "ocr", "braille", "color") else "unknown"
     page = page.replace("__ACTIVE_MODE_JSON__", json.dumps(active_mode))
     page = page.replace("__ACTIVE_ALGORITHM_JSON__", json.dumps("automatic_ppocrv4_labels_v1" if active_mode == "ocr" else None))
-    if recognition_mode == "ocr":
+    if recognition_mode == "parallel":
+        page = page.replace("color recognition runs on its saved word region.", "local OCR and six-dot recognition run in parallel on its saved word region.")
+        page = page.replace("const previousMode=activeRecognitionMode==='ocr'&&r.algorithm_id!==activeRecognitionAlgorithmId;",
+                            "const previousMode=r.recognitionMode!=='parallel';")
+        page = page.replace("Previous recognition mode — take a new photo for OCR", "Previous recognition mode — take a new photo for parallel recognition")
+        page = page.replace("Take a new photo to read printed labels with OCR.", "Take a new photo to run both readers.")
+        page = page.replace("current OCR has not run on this capture.", "parallel recognition has not run on this capture.")
+        from parallel_dashboard import augment_dashboard
+        page = augment_dashboard(page)
+    elif recognition_mode == "ocr":
         page = page.replace("color recognition runs on its saved word region.", "local OCR reads printed labels in its saved word region.")
         page = page.replace("Only bricks fully inside the yellow box are read; bricks touching the line are ignored.",
                             "Only printed labels fully inside the yellow box are read; labels touching the line are ignored.")
@@ -220,15 +237,15 @@ def main():
         raise SystemExit("Use the Python/.ocr-venv Python 3.12 recognition environment.")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8769)
-    parser.add_argument("--recognition", choices=("ocr", "braille", "color"), default="ocr",
-                        help="Local printed-label OCR by default; braille and color are explicit legacy modes")
+    parser.add_argument("--recognition", choices=("parallel", "ocr", "braille", "color"), default="parallel",
+                        help="Parallel OCR/six-dot experiment by default; single-reader modes remain available")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--archive-dir", type=Path, help="Save every received original photo; defaults to the saved Mac destination or runtime/physical-story-captures/capturedimage2026")
     test_references = DEFAULT_OUTPUT / "quest-test-color-references.json"
     parser.add_argument("--saved-references", type=Path, default=test_references if test_references.is_file() else DEFAULT_SAVED_REFERENCES,
                         help="Read-only approved Quest color references for automatic recognition")
     args = parser.parse_args()
-    if args.recognition == "ocr":
+    if args.recognition in ("parallel", "ocr"):
         from lego_ocr_adapter import get_engine
         get_engine()  # Load the local models once before accepting a capture.
     archive_dir = args.archive_dir if args.archive_dir is not None else configured_archive_dir()
@@ -238,7 +255,11 @@ def main():
     print("Physical story camera receiver: http://127.0.0.1:{}".format(args.port), flush=True)
     print("Original photos are permanently saved on this Mac: " + str(store.archive_dir), flush=True)
     print("Valid target crops are saved losslessly before recognition: " + str(store.archive_dir / "crops"), flush=True)
-    if args.recognition == "ocr":
+    if args.recognition == "parallel":
+        print("Input: the same native target crop for OCR and six-dot recognition. First fully accepted word wins; the other reader continues for timing records.", flush=True)
+        print("Recognition provenance: " + json.dumps(store.recognizer.recognition_provenance, sort_keys=True), flush=True)
+        print("Experiment history: " + str(args.output_dir / "recognition-history.jsonl"), flush=True)
+    elif args.recognition == "ocr":
         print("Input: timed native color crops; local printed-label OCR. " + store.recognizer.recognition_description, flush=True)
         print("Recognition provenance: " + json.dumps(store.recognizer.recognition_provenance, sort_keys=True), flush=True)
         print("Printed labels inside the captured box supply letters A-Z and periods. Uncertain labels request another capture.", flush=True)
@@ -255,6 +276,9 @@ def main():
         pass
     finally:
         server.server_close()
+        close = getattr(store.recognizer, "close", None)
+        if close is not None:
+            close()
 
 
 if __name__ == "__main__":
