@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import threading
+from workspace_storage import owner_from, session_directory
 
 
 MAX_RECENT_RECORDS = 1000
@@ -160,3 +161,27 @@ class RecognitionHistory:
             return {"schemaVersion": 1, "records": deepcopy(records[:limit]),
                     "retainedCount": len(records), "retentionLimit": self.max_records,
                     "updateCount": self._updates, "skippedLines": self._skipped_lines}
+
+
+class WorkspaceRecognitionHistory:
+    """Route immutable per-frame ownership, including late loser completions."""
+    def __init__(self, legacy_path, workspace_directory):
+        self.legacy = RecognitionHistory(legacy_path)
+        self.workspace_directory = workspace_directory
+        self._histories = {}
+        self._lock = threading.Lock()
+
+    def for_owner(self, owner):
+        if owner is None:
+            return self.legacy
+        with self._lock:
+            if owner not in self._histories:
+                self._histories[owner] = RecognitionHistory(
+                    session_directory(self.workspace_directory, owner) / "recognition" / "history.jsonl")
+            return self._histories[owner]
+
+    def __call__(self, record):
+        self.for_owner(owner_from(record))(record)
+
+    def snapshot(self, limit=200):
+        return self.legacy.snapshot(limit)

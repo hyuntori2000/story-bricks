@@ -46,10 +46,10 @@ def validate_region(frame_bgr, metadata):
     return x, y, width, height
 
 
-def recognize(frame_bgr, metadata):
+def recognize(frame_bgr, metadata, output_dir=None):
     started = time.perf_counter()
     x, y, width, height = validate_region(frame_bgr, metadata)
-    output = Path(os.environ.get("TABLE_DEPTH_OUTPUT", str(Path(__file__).resolve().parents[1] / "runtime" / "table-depth-captures")))
+    output = Path(output_dir) if output_dir is not None else Path(os.environ.get("TABLE_DEPTH_OUTPUT", str(Path(__file__).resolve().parents[1] / "runtime" / "table-depth-captures")))
     output.mkdir(parents=True, exist_ok=True)
     crop = frame_bgr[y:y + height, x:x + width]
     success, encoded = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 92])

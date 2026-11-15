@@ -27,10 +27,13 @@ from urllib.parse import parse_qs, quote, urlsplit
 from urllib.request import Request, urlopen
 import uuid
 import wave
+from workspace_storage import (StorageError, SessionStateStore, RequestArchive, owner_from,
+                               owner_from_query, session_directory, read_json, write_json)
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parent
 MAX_JSON_BYTES = 64 * 1024
+MAX_SESSION_STATE_BYTES = 2 * 1024 * 1024
 MAX_INPUT_WAV_BYTES = 6 * 1024 * 1024
 MAX_AUDIO_BYTES = 24000 * 2 * 120
 MAX_OUTPUT_TEXT = 4000
@@ -459,14 +462,30 @@ def validate_wav(data: bytes) -> None:
 
 
 class AudioStore:
-    def __init__(self, directory: Path, maximum_files: int = 64):
+    def __init__(self, directory: Path, maximum_files: int = 64, workspace_directory=None):
         self.directory, self.maximum_files = directory, maximum_files
+        self.workspace_directory = Path(workspace_directory) if workspace_directory is not None else Path(directory).parent / "workspaces"
         self.lock = threading.Lock()
 
-    def write(self, audio: bytes) -> str:
+    def write(self, audio: bytes, owner=None) -> str:
         if len(audio) > MAX_AUDIO_BYTES + 1024:
             raise BackendError("audio_too_large", "Generated audio exceeds its storage limit.", 502)
         with self.lock:
+            if owner is not None:
+                directory = session_directory(self.workspace_directory, owner) / "audio"
+                directory.mkdir(parents=True, exist_ok=True)
+                name = uuid.uuid4().hex + ".wav"
+                path = directory / name
+                temporary = path.with_suffix(".tmp")
+                with temporary.open("wb") as stream:
+                    stream.write(audio)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                temporary.replace(path)
+                # Opaque URLs remain compatible with both Unity clients. The
+                # index stores validated ownership, never an arbitrary path.
+                write_json(self.workspace_directory / "audio-index" / (name + ".json"), owner.fields())
+                return "/audio/" + name
             self.directory.mkdir(parents=True, exist_ok=True)
             existing = sorted(self.directory.glob("*.wav"), key=lambda p: p.stat().st_mtime)
             for old in existing[:max(0, len(existing) - self.maximum_files + 1)]:
@@ -483,6 +502,14 @@ class AudioStore:
         if not match:
             raise BackendError("not_found", "Audio file not found.", 404)
         with self.lock:
+            index = self.workspace_directory / "audio-index" / (match.group(1) + ".wav.json")
+            if index.is_file():
+                try:
+                    owner = owner_from(read_json(index), required=True)
+                    path = session_directory(self.workspace_directory, owner) / "audio" / (match.group(1) + ".wav")
+                    return path.read_bytes()
+                except (OSError, ValueError, StorageError):
+                    raise BackendError("audio_unavailable", "The saved session audio is unavailable.", 404) from None
             path = self.directory / (match.group(1) + ".wav")
             if not path.is_file():
                 raise BackendError("audio_expired", "This cached audio has expired. Start a new request to regenerate it.", 410)
@@ -497,10 +524,14 @@ class PendingRequest:
 
 
 class Backend:
-    def __init__(self, upstream, audio_directory: Path, prompts: dict, maximum_requests: int = 512, effects=None):
+    def __init__(self, upstream, audio_directory: Path, prompts: dict, maximum_requests: int = 512, effects=None,
+                 workspace_directory=None):
         self.upstream = upstream
         self.effects = effects
-        self.audio = AudioStore(audio_directory)
+        self.workspace_directory = Path(workspace_directory) if workspace_directory is not None else Path(audio_directory).parent / "workspaces"
+        self.audio = AudioStore(audio_directory, workspace_directory=self.workspace_directory)
+        self.session_states = SessionStateStore(self.workspace_directory)
+        self.archive = RequestArchive(self.workspace_directory)
         self.prompts = prompts
         self.maximum_requests = maximum_requests
         self.requests: dict[tuple[str, str], PendingRequest] = {}
@@ -517,18 +548,40 @@ class Backend:
                 "audioFormat": "PCM16 mono 24000 Hz", "microphoneAudioRetained": False,
                 "soundEffectsConfigured": bool(self.effects and self.effects.configured),
                 "soundEffectsProvider": "ElevenLabs", "soundEffectsModel": getattr(self.effects, "model", ""),
-                "soundEffectsDurationSeconds": getattr(self.effects, "duration_seconds", 3.0)}
+                "soundEffectsDurationSeconds": getattr(self.effects, "duration_seconds", 3.0),
+                "workspaceStorageEnabled": True, "workspaceDirectory": str(self.workspace_directory),
+                "sessionStateMaxBytes": MAX_SESSION_STATE_BYTES, "unscopedStorage": "legacy"}
 
     def dispatch(self, route: str, body: bytes, content_type: str) -> tuple[int, dict]:
         started_at = time.perf_counter()
         parsed = urlsplit(route)
+        if parsed.path == "/session-state":
+            if content_type.split(";", 1)[0].strip().lower() != "application/json":
+                raise BackendError("content_type", "Session snapshots require application/json.", 415)
+            if len(body) > MAX_SESSION_STATE_BYTES:
+                raise BackendError("payload_too_large", "Session snapshot exceeds 2 MB.", 413)
+            try:
+                value = json.loads(body)
+                if not isinstance(value, dict):
+                    raise ValueError()
+                return 200, self.session_states.save(value)
+            except StorageError as error:
+                return error.status, dict(error.details, ok=False, code=error.code, error=error.message)
+            except (ValueError, TypeError):
+                raise BackendError("invalid_session_state", "Expected a finite JSON session snapshot.") from None
+            except OSError:
+                raise BackendError("session_save_failed", "The Mac could not save this session snapshot.", 507) from None
         if parsed.path not in ("/question", "/story", "/transcribe", "/sound-effect"):
             raise BackendError("not_found", "Endpoint not found.", 404)
         operation = parsed.path[1:]
         if operation == "transcribe":
             if content_type.split(";", 1)[0].strip().lower() not in ("audio/wav", "audio/x-wav"):
                 raise BackendError("content_type", "Transcription requires Content-Type: audio/wav.", 415)
-            query = parse_qs(parsed.query)
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            try:
+                owner = owner_from_query(query)
+            except StorageError as error:
+                raise BackendError(error.code, error.message, error.status) from None
             session = checked_id(query.get("sessionId", [None])[0], "sessionId")
             request = checked_id(query.get("requestId", [None])[0], "requestId")
             validate_wav(body)
@@ -544,35 +597,59 @@ class Backend:
                 raise BackendError("invalid_json", "Expected valid JSON.") from None
             if not isinstance(value, dict):
                 raise BackendError("invalid_json", "Expected a JSON object.")
+            try:
+                owner = owner_from(value)
+            except StorageError as error:
+                raise BackendError(error.code, error.message, error.status) from None
             session = checked_id(value.get("sessionId"), "sessionId")
             request = checked_id(value.get("requestId"), "requestId")
             context = validate_sound_effect(value) if operation == "sound-effect" else validate_context(value.get("context"), operation)
         digest = hashlib.sha256(parsed.path.encode() + b"\0" + body).hexdigest()
-        key = (session, request)
+        key = (owner, session, request)
+        archive_path = None
         with self.lock:
             pending = self.requests.get(key)
             if pending:
                 if pending.digest != digest:
                     raise BackendError("request_conflict", "A requestId was reused with different input.", 409)
-                owner = False
+                request_owner = False
             else:
-                if len(self.requests) >= self.maximum_requests:
+                if owner is None and sum(1 for identity in self.requests if identity[0] is None) >= self.maximum_requests:
                     raise BackendError("request_capacity", "This prototype's request ledger is full. Restart the backend for a new test session.", 429)
+                if owner is not None:
+                    stored_input = ({"audioSha256": hashlib.sha256(body).hexdigest(), "audioBytes": len(body)}
+                                    if operation == "transcribe" else value)
+                    try:
+                        archive_path, completed = self.archive.begin(owner, session, request, digest, operation, stored_input)
+                    except StorageError as error:
+                        return error.status, dict(owner.fields(), sessionId=session, requestId=request,
+                                                 text="", audioPath="", error=error.message, code=error.code)
+                    except (OSError, ValueError, TypeError, KeyError):
+                        raise BackendError("request_save_failed", "The Mac could not save this request before generation.", 507) from None
+                    if completed is not None:
+                        return completed
                 pending = PendingRequest(digest, threading.Event())
                 self.requests[key] = pending
-                owner = True
-        if not owner:
+                request_owner = True
+        if not request_owner:
             if not pending.done.wait(135):
                 raise BackendError("request_pending", "This request is still running. Do not submit it with a different requestId.", 409)
             return pending.result
         metrics = {"textMs": 0.0, "speechMs": 0.0, "audioStoreMs": 0.0, "totalMs": 0.0, "transcriptionMs": 0.0}
         result = {"sessionId": session, "requestId": request, "text": "", "audioPath": "", "error": "", "code": "", "metrics": metrics}
+        if owner is not None:
+            result.update(owner.fields())
         def measured(name, action):
             stage_started = time.perf_counter()
             try:
                 return action()
             finally:
                 metrics[name] = round((time.perf_counter() - stage_started) * 1000, 3)
+        def save_audio(audio):
+            try:
+                return self.audio.write(audio, owner)
+            except (OSError, StorageError):
+                raise BackendError("audio_save_failed", "Generated audio could not be saved on the Mac.", 507) from None
         status = 200
         capacity = self.effect_capacity if operation == "sound-effect" else self.capacity
         acquired = capacity.acquire(blocking=False)
@@ -585,14 +662,14 @@ class Backend:
                 if self.effects is None:
                     raise BackendError("sfx_key_missing", "Sound effects are not configured on the Mac backend.", 503)
                 audio = measured("soundEffectMs", lambda: self.effects.generate(*context))
-                audio_path = measured("audioStoreMs", lambda: self.audio.write(audio))
+                audio_path = measured("audioStoreMs", lambda: save_audio(audio))
                 result.update(audioPath=audio_path, provider="ElevenLabs", model=self.effects.model,
                               durationSeconds=self.effects.duration_seconds, audioFormat="PCM16 mono 24000 Hz")
             else:
                 instructions = self.prompts[operation]
                 text = measured("textMs", lambda: self.upstream.generate_text(operation, instructions, context))
                 audio = measured("speechMs", lambda: self.upstream.synthesize(text, metrics=metrics))
-                audio_path = measured("audioStoreMs", lambda: self.audio.write(audio))
+                audio_path = measured("audioStoreMs", lambda: save_audio(audio))
                 result.update(text=text, audioPath=audio_path)
         except BackendError as error:
             status = error.status
@@ -604,9 +681,17 @@ class Backend:
             metrics["totalMs"] = round((time.perf_counter() - started_at) * 1000, 3)
             if acquired:
                 capacity.release()
+            if archive_path is not None:
+                try:
+                    self.archive.complete(archive_path, status, result)
+                except (OSError, ValueError):
+                    status = 507
+                    result.update(error="Generation completed but its result could not be saved on the Mac.", code="result_save_failed")
             with self.lock:
                 pending.result = (status, result)
                 pending.done.set()
+                if owner is not None:
+                    self.requests.pop(key, None)
             # Deliberately excludes IDs, context, utterances, credentials and upstream bodies.
             try:
                 print(json.dumps({"type": "voice_latency", "operation": operation, "status": status,
@@ -675,7 +760,8 @@ def make_server(backend: Backend, port: int = 8766) -> ThreadingHTTPServer:
                     length = int(self.headers.get("Content-Length", "-1"))
                 except ValueError:
                     length = -1
-                limit = MAX_INPUT_WAV_BYTES if urlsplit(self.path).path == "/transcribe" else MAX_JSON_BYTES
+                route = urlsplit(self.path).path
+                limit = MAX_INPUT_WAV_BYTES if route == "/transcribe" else MAX_SESSION_STATE_BYTES if route == "/session-state" else MAX_JSON_BYTES
                 if length < 1 or length > limit:
                     raise BackendError("payload_size", "Request length is missing, empty, or too large.", 413)
                 body = self.rfile.read(length)
@@ -707,7 +793,8 @@ def main():
         for kind in ("question", "story"):
             checked_text(prompts.get(kind), kind + " prompt", 12000)
         effects = ElevenLabsEffects(settings.elevenlabs_api_key, settings.sound_effect_model)
-        backend = Backend(OpenAIUpstream(settings), HERE / "runtime/audio", prompts, effects=effects)
+        backend = Backend(OpenAIUpstream(settings), HERE / "runtime/audio", prompts, effects=effects,
+                          workspace_directory=PROJECT / "runtime" / "workspaces")
         server = make_server(backend, args.port)
     except (OSError, ValueError, BackendError):
         print("Backend could not start. Check the local prompts, dependencies, and whether the port is available.")

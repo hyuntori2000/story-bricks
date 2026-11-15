@@ -19,6 +19,7 @@ from lego_ocr_adapter import get_engine, _read_crop
 from lego_braille_adapter import _reading_order
 from braille_face_locator import locate_faces, capture_selection_quad, capture_face_membership
 from capture_crop_archive import target_crop_pixels
+from workspace_storage import owner_from
 from braille_geometry import validate_layout
 from braille_reader import BrailleReader
 from ocr_reader import CalibratedOCRReader, MIN_OCR_SCORE
@@ -204,6 +205,9 @@ class ParallelRecognizer:
                   "complete": False, "disagreement": False,
                   "ocr": {"status": "pending", "word": None, "elapsedMs": None, "reason": ""},
                   "braille": {"status": "pending", "word": None, "elapsedMs": None, "reason": ""}}
+        owner = owner_from(metadata)
+        if owner is not None:
+            record.update(owner.fields())
         self._save(record)
         with self._call_lock:
             if self._closed:

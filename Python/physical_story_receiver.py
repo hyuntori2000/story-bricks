@@ -12,6 +12,7 @@ import sys
 import camera_frame_server
 from camera_frame_server import FrameHTTPServer, FrameStore
 from table_roi_adapter import recognize as save_hand_region, validate_region
+from workspace_storage import owner_from, session_directory
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -51,13 +52,14 @@ def build_store(output_dir, saved_references=None, automatic=False, recognition_
     """Read existing references only; the HTTP server disables calibration."""
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
+    workspace_directory = output.parent / "workspaces"
     os.environ["TABLE_DEPTH_OUTPUT"] = str(output)
     if recognition_mode == "parallel":
         from parallel_recognition import ParallelRecognizer
-        from recognition_history import RecognitionHistory
-        history = RecognitionHistory(output / "recognition-history.jsonl")
+        from recognition_history import WorkspaceRecognitionHistory
+        history = WorkspaceRecognitionHistory(output / "recognition-history.jsonl", workspace_directory)
         reader = ParallelRecognizer(history)
-        store = FrameStore(output, reader, archive_dir=archive_dir)
+        store = FrameStore(output, reader, archive_dir=archive_dir, workspace_directory=workspace_directory)
         store.recognition_history = history
         return store
     if recognition_mode in ("ocr", "braille"):
@@ -72,7 +74,9 @@ def build_store(output_dir, saved_references=None, automatic=False, recognition_
             except (ValueError, TypeError):
                 return result
             if unity_crop_bgr is None:
-                crop = save_hand_region(frame_bgr, metadata)
+                owner = owner_from(metadata)
+                destination = session_directory(workspace_directory, owner) / "capture-state" if owner is not None else output
+                crop = save_hand_region(frame_bgr, metadata, output_dir=destination)
                 result.update(roiWidth=crop["roiWidth"], roiHeight=crop["roiHeight"], pythonCropMs=crop["pythonCropMs"])
             else:
                 # FrameStore already saved the exact final PNG before detection.
@@ -85,13 +89,13 @@ def build_store(output_dir, saved_references=None, automatic=False, recognition_
         local_recognizer.recognition_input = "target_crop"
         local_recognizer.recognition_provenance = dict(PROVENANCE)
         local_recognizer.recognition_description = METHOD
-        return FrameStore(output, local_recognizer, archive_dir=archive_dir)
+        return FrameStore(output, local_recognizer, archive_dir=archive_dir, workspace_directory=workspace_directory)
     if recognition_mode != "color":
         raise ValueError("recognition_mode must be parallel, ocr, braille or color")
     # Legacy color mode is opt-in and requires an older upstream checkout.
     # The current upstream intentionally removed its color-reader modules.
     from lego_color_adapter import ColorSession
-    store = FrameStore(output, recognize, archive_dir=archive_dir)
+    store = FrameStore(output, recognize, archive_dir=archive_dir, workspace_directory=workspace_directory)
     references = Path(saved_references).resolve() if saved_references else None
     if references is not None and references.is_file():
         store.color_session = ColorSession(references)
@@ -154,6 +158,7 @@ def automatic_dashboard(recognition_mode="ocr"):
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Story Bricks — Automatic Input</title>
 <style>body{margin:0;background:#101820;color:#eaf1f5;font:17px system-ui}main{max-width:1320px;margin:28px auto;padding:0 24px}h1{font-size:28px}h2{font-size:20px;margin-top:0}.panel{padding:18px;margin:14px 0;background:#203543;border-radius:12px}.image-pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}.image-pair .panel{min-width:0;margin:0}.input-panel{box-shadow:inset 0 0 0 1px #64ddeb}canvas{max-width:100%;height:auto;border-radius:8px;display:none;background:#000}p{line-height:1.5;color:#c4d0da}pre{white-space:pre-wrap;font-size:12px;overflow:auto}#word{font-size:32px;font-weight:650;color:#a5f1dc}summary{cursor:pointer;padding:8px 0}@media(max-width:760px){main{padding:0 14px}.image-pair{gap:10px}.image-pair .panel{padding:12px}.image-pair h2{font-size:17px}.image-pair p{font-size:13px;min-height:4.5em}}</style>
 <main><h1>Story Bricks</h1><p>Double pinch above the word, then move your hands away. A photo is taken after 3 seconds; color recognition runs on its saved word region.</p>
+<p><label for="workspace-session">Saved session: </label><select id="workspace-session"><option value="/">Legacy captures</option></select> <span id="workspace-status"></span></p>
 <div class="panel"><div id="status">Waiting for the Quest camera.</div><div id="word"></div><p id="message">Uncertain input asks for a new photo.</p><div id="timing"></div></div>
 <div class="image-pair">
 <section class="panel" id="original-panel"><h2>Original photo</h2><p id="original-status">Waiting for a capture.</p><canvas id="original" aria-label="Original photo with yellow capture box"></canvas></section>
@@ -164,13 +169,36 @@ def automatic_dashboard(recognition_mode="ocr"):
 <script>
 const activeRecognitionMode=__ACTIVE_MODE_JSON__,activeRecognitionAlgorithmId=__ACTIVE_ALGORITHM_JSON__;
 const el=id=>document.getElementById(id),canvas=el('frame'),original=el('original');let revision='',busy=false;
+function scopedUrl(path){const url=new URL(path,location.origin),scope=new URLSearchParams(location.search);for(const key of ['workspaceId','experienceSessionId'])if(scope.has(key))url.searchParams.set(key,scope.get(key));return url.pathname+url.search;}
+const monitorWorkspace=new URLSearchParams(location.search).get('workspaceId');
+document.querySelector('h1').textContent='Story Bricks · '+(monitorWorkspace==='judy'?'Judy':monitorWorkspace==='demo'?'Create World':'Legacy captures (open a workspace session link for new captures)');
+const sessionSelect=el('workspace-session');let sessionListSignature='';
+sessionSelect.addEventListener('change',()=>{if(sessionSelect.value)location.assign(sessionSelect.value);});
+async function refreshSessions(){
+ try{
+  const response=await fetch('/workspaces.json',{cache:'no-store'});if(!response.ok)throw Error();
+  const data=await response.json();if(!Array.isArray(data.sessions))throw Error();
+  const sessions=data.sessions.filter(item=>['judy','demo'].includes(item.workspaceId)&&/^[0-9a-f]{32}$/.test(item.experienceSessionId));
+  const signature=JSON.stringify(sessions);
+  if(signature!==sessionListSignature){
+   const current=new URLSearchParams(location.search),active=current.get('workspaceId')&&current.get('experienceSessionId')?'/?workspaceId='+encodeURIComponent(current.get('workspaceId'))+'&experienceSessionId='+encodeURIComponent(current.get('experienceSessionId')):'/';
+   sessionSelect.replaceChildren(new Option('Legacy captures','/'));
+   for(const item of sessions){const url='/?workspaceId='+item.workspaceId+'&experienceSessionId='+item.experienceSessionId;sessionSelect.add(new Option((item.workspaceId==='judy'?'Judy':'Create World')+' · '+item.experienceSessionId.slice(0,8)+' · '+new Date(item.updatedAtUtc).toLocaleString(),url));}
+   if(![...sessionSelect.options].some(option=>option.value===active))sessionSelect.add(new Option('Current session (no saved capture yet)',active));
+   sessionSelect.value=active;sessionListSignature=signature;
+  }
+  el('workspace-status').textContent='Choose a session to view its captures and recognition history.';
+ }catch(_){el('workspace-status').textContent='Session list unavailable; retrying.';}
+ finally{setTimeout(refreshSessions,5000);}
+}
+refreshSessions();
 function loadImage(url){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('Image unavailable'));img.src=url;});}
 function draw(canvas,img){canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;canvas.getContext('2d').drawImage(img,0,0);canvas.style.display='block';}
 function clearImages(){canvas.style.display='none';original.style.display='none';}
 async function refresh(){
  if(busy)return;busy=true;
  try{
-  const response=await fetch('/latest.json',{cache:'no-store'});if(!response.ok)throw new Error('Receiver unavailable');
+  const response=await fetch(scopedUrl('/latest.json'),{cache:'no-store'});if(!response.ok)throw new Error('Receiver unavailable');
   const state=await response.json();
   if(!state.latest){revision='';clearImages();el('status').textContent='Ready — waiting for a new word photo.';el('word').textContent='';el('message').textContent='Double pinch above the word; the photo follows after 3 seconds.';el('timing').textContent='';el('crop-status').textContent='Waiting for a capture.';el('original-status').textContent='Waiting for a capture.';el('metadata').textContent='';return;}
   const latest=state.latest,m=latest.metadata,r=latest.colorAnalysis?.recognition||latest.response.recognition;
@@ -188,7 +216,7 @@ async function refresh(){
   const cropTask=(async()=>{
    if(crop?.status!=='saved'){el('crop-status').textContent='No valid crop was saved for this capture. The original is available separately.';return;}
    try{
-    const img=await loadImage('/latest-crop.png'+query);
+    const img=await loadImage(scopedUrl('/latest-crop.png'+query));
     if(img.naturalWidth!==crop.width||img.naturalHeight!==crop.height)throw new Error('Crop dimensions changed');
     draw(canvas,img);
     const masked=crop.captureMask?.applied===true||r.recognitionInput?.captureMask?.applied===true;
@@ -197,7 +225,7 @@ async function refresh(){
   })();
   const originalTask=(async()=>{
    try{
-    const img=await loadImage('/latest.jpg'+query);draw(original,img);
+    const img=await loadImage(scopedUrl('/latest.jpg'+query));draw(original,img);
     const roi=m.recognitionRegion,quad=roi?.readingQuad,ctx=original.getContext('2d');
     ctx.strokeStyle='#ffd35c';ctx.lineWidth=Math.max(3,original.width/350);
     if(Array.isArray(quad)&&quad.length===4&&quad.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))){ctx.beginPath();quad.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.stroke();}
@@ -254,11 +282,13 @@ def main():
     server = FrameHTTPServer(("127.0.0.1", args.port), store)
     print("Physical story camera receiver: http://127.0.0.1:{}".format(args.port), flush=True)
     print("Original photos are permanently saved on this Mac: " + str(store.archive_dir), flush=True)
-    print("Valid target crops are saved losslessly before recognition: " + str(store.archive_dir / "crops"), flush=True)
+    print("New workspace captures: {judy,create-world}/sessions/<experienceSessionId>/captures/ beneath that archive; valid crops stay with their originals.", flush=True)
+    print("Legacy capture paths are unchanged. Scoped monitor: /?workspaceId=demo&experienceSessionId=<32-character-session-id> (or workspaceId=judy).", flush=True)
     if args.recognition == "parallel":
         print("Input: the same native target crop for OCR and six-dot recognition. First fully accepted word wins; the other reader continues for timing records.", flush=True)
         print("Recognition provenance: " + json.dumps(store.recognizer.recognition_provenance, sort_keys=True), flush=True)
-        print("Experiment history: " + str(args.output_dir / "recognition-history.jsonl"), flush=True)
+        print("Legacy experiment history: " + str(args.output_dir / "recognition-history.jsonl"), flush=True)
+        print("Workspace capture state/history: " + str(store.workspace_directory), flush=True)
     elif args.recognition == "ocr":
         print("Input: timed native color crops; local printed-label OCR. " + store.recognizer.recognition_description, flush=True)
         print("Recognition provenance: " + json.dumps(store.recognizer.recognition_provenance, sort_keys=True), flush=True)

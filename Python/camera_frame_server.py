@@ -26,6 +26,8 @@ os.environ["OPENCV_IO_MAX_IMAGE_WIDTH"] = "4096"
 os.environ["OPENCV_IO_MAX_IMAGE_HEIGHT"] = "4096"
 import cv2
 import numpy as np
+from workspace_storage import (StorageError, owner_from, owner_from_query, session_directory,
+                               Owner, UUID_N, WORKSPACE_DIRECTORIES)
 
 
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
@@ -75,6 +77,10 @@ def require_vector(value: Any, keys: str, label: str) -> None:
 def validate_metadata(metadata: Any) -> Dict[str, Any]:
     if not isinstance(metadata, dict):
         raise RequestError("invalid_metadata", "metadata must be a JSON object")
+    try:
+        owner_from(metadata)
+    except StorageError as error:
+        raise RequestError(error.code, error.message, error.status) from None
     if type(metadata.get("schemaVersion")) is not int or metadata["schemaVersion"] != 1:
         raise RequestError("invalid_metadata", "schemaVersion must be 1")
     for key in ("sessionId", "frameId"):
@@ -204,8 +210,12 @@ def atomic_write(path: Path, content: bytes) -> None:
 
 class FrameStore:
     def __init__(self, output_dir: Path, recognizer: Callable = default_recognizer,
-                 archive_dir: Optional[Path] = None):
+                 archive_dir: Optional[Path] = None, workspace_directory=None, owner=None):
         self.output_dir = Path(output_dir)
+        self.owner = owner
+        self.workspace_directory = Path(workspace_directory) if workspace_directory is not None else self.output_dir / "workspaces"
+        self._workspace_stores = {}
+        self._workspace_lock = threading.Lock()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.output_dir, 0o700)
         # Also protects a newly created runtime directory in ordinary git add flows.
@@ -235,6 +245,44 @@ class FrameStore:
         except OSError:
             pass
 
+    def for_owner(self, owner):
+        if owner == self.owner:
+            return self
+        if self.owner is not None:
+            raise RequestError("workspace_mismatch", "This capture store belongs to another workspace session", 409)
+        with self._workspace_lock:
+            if owner not in self._workspace_stores:
+                output = session_directory(self.workspace_directory, owner) / "capture-state"
+                archive = session_directory(self.archive_dir, owner) / "captures" if self.archive_dir is not None else None
+                self._workspace_stores[owner] = FrameStore(output, self.recognizer, archive,
+                                                         self.workspace_directory, owner)
+            return self._workspace_stores[owner]
+
+    def workspace_sessions(self):
+        """Small read-only index of saved sessions; no media or transcript reads."""
+        sessions = []
+        for workspace, folder in WORKSPACE_DIRECTORIES.items():
+            root = self.workspace_directory / folder / "sessions"
+            if not root.is_dir():
+                continue
+            for candidate in root.iterdir():
+                if not UUID_N.fullmatch(candidate.name) or not candidate.is_dir():
+                    continue
+                owner = Owner(workspace, candidate.name)
+                try:
+                    directory = session_directory(self.workspace_directory, owner)
+                    records = [directory / "session-state.json", directory / "capture-state" / "latest.json"]
+                    modified = max((record.stat().st_mtime for record in records if record.is_file()), default=None)
+                except (OSError, StorageError):
+                    continue
+                if modified is None:
+                    continue
+                sessions.append(dict(owner.fields(), displayName="Judy" if workspace == "judy" else "Create World",
+                                     updatedAtUtc=datetime.fromtimestamp(modified, timezone.utc).isoformat(),
+                                     monitorUrl="/?workspaceId=" + workspace + "&experienceSessionId=" + candidate.name))
+        sessions.sort(key=lambda item: item["updatedAtUtc"], reverse=True)
+        return {"schemaVersion": 1, "sessions": sessions[:200], "legacyMonitorUrl": "/"}
+
     def restore_latest(self):
         """Restore only a hash-verified original/metadata capture pair."""
         try:
@@ -243,6 +291,8 @@ class FrameStore:
                 return
             latest = json.loads(latest_path.read_text(), parse_constant=reject_json_constant)
             metadata = validate_metadata(latest.get("metadata"))
+            if owner_from(metadata) != self.owner:
+                return
             response = latest.get("response")
             if not isinstance(response, dict) or (response.get("sessionId"), response.get("frameId")) != (metadata["sessionId"], metadata["frameId"]):
                 return
@@ -329,6 +379,9 @@ class FrameStore:
 
     def accept(self, metadata: Dict[str, Any], image_bytes: bytes, unity_crop_bytes: Optional[bytes] = None) -> Dict[str, Any]:
         metadata = validate_metadata(metadata)
+        owner = owner_from(metadata)
+        if owner != self.owner:
+            return self.for_owner(owner).accept(metadata, image_bytes, unity_crop_bytes)
         identity = (metadata["sessionId"], metadata["frameId"])
         canonical_metadata = json.dumps(metadata, sort_keys=True, allow_nan=False, separators=(",", ":")).encode("utf-8")
         signature_bytes = canonical_metadata + b"\x00" + image_bytes
@@ -398,6 +451,8 @@ class FrameStore:
                 "status": result.get("status", "processed"), "duplicate": False,
                 "receivedCount": count, "receivedAtUtc": received_at, "recognition": result,
             }
+            if owner is not None:
+                response.update(owner.fields())
             if archive is not None:
                 response["archive"] = archive
             if unity_crop_bgr is not None:
@@ -433,7 +488,8 @@ class FrameStore:
 
     def snapshot(self) -> Dict[str, Any]:
         with self.lock:
-            return {"receivedCount": self.received_count, "latest": self.latest}
+            return dict(self.owner.fields() if self.owner is not None else {},
+                        receivedCount=self.received_count, latest=self.latest)
 
     def image(self, session_id=None, frame_id=None) -> Tuple[Optional[bytes], Optional[str]]:
         with self.lock:
@@ -502,6 +558,8 @@ class FrameStore:
                 "imageWidth": metadata["imageWidth"], "imageHeight": metadata["imageHeight"],
                 "captureTimestampUtc": metadata["captureTimestampUtc"], "detections": [],
             }
+            if self.owner is not None:
+                response.update(self.owner.fields())
             if not analysis:
                 return response
             result = analysis["recognition"]
@@ -613,6 +671,14 @@ class FrameHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+        try:
+            owner = owner_from_query(query)
+            store = self.server.store.for_owner(owner)
+        except (StorageError, RequestError) as error:
+            self.send_json(getattr(error, "status", getattr(error, "http_status", 400)),
+                           {"error": error.code, "detail": str(error)})
+            return
         if path == "/":
             self.send_body(200, DASHBOARD, "text/html; charset=utf-8")
         elif path == "/health":
@@ -627,9 +693,10 @@ class FrameHandler(BaseHTTPRequestHandler):
                                  "archiveDirectory": str(self.server.store.archive_dir) if self.server.store.archive_dir else None,
                                  "receivedCount": self.server.store.snapshot()["receivedCount"]})
         elif path == "/latest.json":
-            self.send_json(200, self.server.store.snapshot())
+            self.send_json(200, store.snapshot())
+        elif path == "/workspaces.json":
+            self.send_json(200, self.server.store.workspace_sessions())
         elif path == "/recognition-history.json":
-            query = parse_qs(urlsplit(self.path).query)
             try:
                 limit = max(1, min(int(query.get("limit", ["200"])[0]), 1000))
             except ValueError:
@@ -637,26 +704,27 @@ class FrameHandler(BaseHTTPRequestHandler):
                 return
             # Do not call FrameStore.snapshot or acquire the capture lock here.
             history = getattr(self.server.store, "recognition_history", None)
+            if history is not None and hasattr(history, "for_owner"):
+                history = history.for_owner(owner)
+            elif owner is not None:
+                history = None
             self.send_json(200, history.snapshot(limit) if history is not None else
                            {"schemaVersion": 1, "records": [], "retainedCount": 0})
         elif path == "/latest-crop.png":
-            query = parse_qs(urlsplit(self.path).query)
             try:
-                image_bytes = self.server.store.crop_image(query.get("sessionId", [None])[0], query.get("frameId", [None])[0])
+                image_bytes = store.crop_image(query.get("sessionId", [None])[0], query.get("frameId", [None])[0])
                 self.send_body(200, image_bytes, "image/png")
             except RequestError as error:
                 self.send_json(error.http_status, {"error": error.code, "detail": error.detail})
         elif path in ("/color/result", "/recognition/result"):
-            query = parse_qs(urlsplit(self.path).query)
             try:
-                result = self.server.store.color_result(query.get("sessionId", [None])[0], query.get("frameId", [None])[0])
+                result = store.color_result(query.get("sessionId", [None])[0], query.get("frameId", [None])[0])
                 self.send_json(200, result)
             except RequestError as error:
                 self.send_json(error.http_status, {"ready": False, "error": error.code, "detail": error.detail})
         elif path in ("/latest.jpg", "/latest.png"):
-            query = parse_qs(urlsplit(self.path).query)
             try:
-                image_bytes, content_type = self.server.store.image(query.get("sessionId", [None])[0], query.get("frameId", [None])[0])
+                image_bytes, content_type = store.image(query.get("sessionId", [None])[0], query.get("frameId", [None])[0])
             except RequestError as error:
                 self.send_json(error.http_status, {"error": error.code, "detail": error.detail})
                 return
@@ -669,6 +737,7 @@ class FrameHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
+        ownership = {}
         if path not in ("/frames", "/color/analyze"):
             self.send_json(404, {"accepted": False, "error": "not_found"})
             return
@@ -698,12 +767,17 @@ class FrameHandler(BaseHTTPRequestHandler):
                     raise RequestError("invalid_json", "Send valid finite JSON")
                 if isinstance(request, dict) and request.get("action") == "calibrate":
                     raise RequestError("calibration_disabled", "Color calibration is disabled in this recognition test", 403)
-                self.send_json(200, self.server.store.analyze_regions(request))
+                owner = owner_from(request)
+                self.send_json(200, self.server.store.for_owner(owner).analyze_regions(request))
                 return
             metadata, image_bytes, unity_crop_bytes = parse_multipart(self.headers.get("Content-Type", ""), body)
+            owner = owner_from(metadata)
+            ownership = owner.fields() if owner is not None else {}
             self.send_json(200, self.server.store.accept(metadata, image_bytes, unity_crop_bytes))
         except RequestError as error:
-            self.send_json(error.http_status, {"accepted": False, "error": error.code, "detail": error.detail})
+            self.send_json(error.http_status, dict(ownership, accepted=False, error=error.code, detail=error.detail))
+        except StorageError as error:
+            self.send_json(error.status, dict(ownership, accepted=False, error=error.code, detail=error.message))
         except (socket.timeout, TimeoutError):
             self.send_json(408, {"accepted": False, "error": "request_timeout"})
         except Exception as error:

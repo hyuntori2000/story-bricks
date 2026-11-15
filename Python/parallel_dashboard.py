@@ -32,6 +32,7 @@ _SCRIPT = r'''
 <script>
 (() => {
   'use strict';
+  function historyUrl(){const url=new URL('/recognition-history.json',location.origin),scope=new URLSearchParams(location.search);for(const key of ['workspaceId','experienceSessionId'])if(scope.has(key))url.searchParams.set(key,scope.get(key));return url.pathname+url.search;}
   const rows = document.getElementById('parallel-history-rows');
   const status = document.getElementById('parallel-history-status');
   if (!rows || !status) return;
@@ -92,7 +93,7 @@ _SCRIPT = r'''
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3500);
     try {
-      const response = await fetch('/recognition-history.json', {cache: 'no-store', signal: controller.signal});
+      const response = await fetch(historyUrl(), {cache: 'no-store', signal: controller.signal});
       if (!response.ok) throw new Error('History unavailable');
       const result = await response.json();
       if (!result || !Array.isArray(result.records)) throw new Error('Invalid history response');
