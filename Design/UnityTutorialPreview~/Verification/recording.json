@@ -1,0 +1,13 @@
+{
+  "completed": true,
+  "note": "Actual Unity Game-view frames; original voice clips and timings. Replay skip invokes the same HandleDoublePinch route as hardware and P.",
+  "error": "",
+  "sampleRate": 48000,
+  "channels": 2,
+  "duration": 72.5516027,
+  "audioFirstTime": 0.009449599999999999,
+  "audioHasSignal": true,
+  "frameCount": 1080,
+  "width": 1280,
+  "height": 800
+}

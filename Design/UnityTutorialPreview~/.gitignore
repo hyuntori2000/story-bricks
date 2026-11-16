@@ -1,0 +1,26 @@
+# Unity
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/.utmp/
+*.csproj
+*.sln
+*.slnx
+*.apk
+*.aab
+mono_crash.*
+.DS_Store
+.vscode/
+
+# Local-only settings that hold an access token
+/Assets/Resources/DevAgentSettings.asset
+/Assets/Resources/DevAgentSettings.asset.meta
+
+# Editor screenshots
+/Assets/Screenshots/
+/Assets/Screenshots.meta

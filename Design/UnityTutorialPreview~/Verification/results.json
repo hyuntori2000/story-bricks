@@ -1,0 +1,16 @@
+{
+    "passed": true,
+    "mode": "Unity Editor Play Mode, no XR hardware",
+    "note": "Opening and initial narration use supplied audio. Repeat/phase tests shorten timings and omit voice clips in memory only.",
+    "checks": [
+        "Opening completed before automatic tutorial start",
+        "Initial narration: double pinch returned to menu without starting a story",
+        "No delayed tutorial voice or visuals after initial skip",
+        "Brick reveal: double pinch returned to menu without starting a story",
+        "Period explanation: double pinch returned to menu without starting a story",
+        "Fox animation: double pinch returned to menu without starting a story",
+        "Replay completes automatically and returns to clean menu",
+        "A new story starts normally after tutorial completion"
+    ],
+    "error": ""
+}
