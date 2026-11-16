@@ -1,4 +1,84 @@
-# Story Bricks — shared functions
+<div align="center">
+
+# Story Bricks
+### Physical words. Spatial stories.
+
+Build words with physical blocks, capture them on Meta Quest, and turn them into an interactive AI storytelling experience.
+
+**🏆 Best of Social Good and XR — Winner**  
+**Immerse the Bay · Stanford XR**
+
+**Unity / C# · Meta Quest / XR · Python · OCR & Braille · AI Storytelling**
+
+[How it works](#how-it-works) · [Explore the code](#explore-the-code) · [Run the project](#run-the-project) · [Team integration](Documentation/COMPONENTS.md)
+
+</div>
+
+---
+
+## From words to worlds
+
+Story Bricks connects hands-on word building with a mixed-reality storytelling experience. Physical words become spatial anchors in Quest; guided questions and spoken answers help shape a story.
+
+The project brings together **physical interaction, OCR and braille recognition, voice, and spatial media** in a shared Unity and Python implementation.
+
+## How it works
+
+1. **Build & capture** — Arrange physical word blocks, then use a same-hand double pinch in Quest. After a three-second wait, the selected camera region is captured for recognition.
+2. **Recognize & anchor** — The recognition pipeline processes the cropped image and connects accepted words to spatial word boxes.
+3. **Talk & imagine** — In live mode, each accepted word feeds a guided conversation. Four words and four saved answers complete a story.
+4. **Experience the story** — Presentation events connect word boxes and the story stage to voice, sound, images, and supplied video.
+
+```mermaid
+flowchart LR
+    A["Physical word blocks"] --> B["Quest capture"]
+    B --> C["Python recognition"]
+    C --> D["Spatial word anchors"]
+    D --> E["Four words + four answers"]
+    E --> F["Story + spatial media"]
+```
+
+### Two ways to play
+
+| Mode | Experience |
+| --- | --- |
+| **Live story** | Shared capture and recognition, live conversation, and a story built from four accepted words and four saved answers. |
+| **Prepared story** | The same capture and recognition flow with authored media; no automatic conversation API calls. |
+
+Word boxes can be created during conversation or playback. Extra accepted words wait for the next story.
+
+## Explore the code
+
+| Area | What it contains |
+| --- | --- |
+| [Unity runtime](Assets/BrailleSoundDemo/Runtime/) | Capture, spatial word anchors, conversation, audio, and story presentation. |
+| [Python backend](Python/) | OCR and braille adapters, capture receivers, speech, and API integration. |
+| [Presentation bridge](Documentation/COMPONENTS.md) | UI methods and events for connecting custom UX and media. |
+| [Quest tools](Tools/) | Backend setup, device connection, build, and install scripts. |
+| [Recognition source](Config/recognition-source.json) | Pinned external OCR dependency. |
+
+### Prototype status
+
+This repository contains the shared working functions and baseline Unity scenes. Custom designer UX and final media are separate work. Local image, audio, and video bindings are supported; **automatic Orbis video generation and public video sharing are not connected**. The included Judy storyboard uses **JUDY → FOX → RAIN → TREE**.
+
+## Run the project
+
+**Requirements:** Unity **6000.3.28f1** with Android Build Support, Python **3.12**, Git LFS, and a compatible Meta Quest development setup.
+
+```sh
+git clone https://github.com/hyuntori2000/story-bricks.git
+cd story-bricks
+git lfs install
+git lfs pull
+python3.12 Tools/setup-team.py --backend
+```
+
+Open `Assets/Scenes/PhysicalStoryDemo.unity` in Unity. Follow the backend and device instructions below to run the baseline experience.
+
+<details>
+<summary><strong>Backend, Quest build, and team handoff instructions</strong></summary>
+
+# Shared functions & team handoff
 
 This repository shares the working functions. The designers build their own UX and dashboard.
 
@@ -51,8 +131,11 @@ The scripts support `UNITY_EDITOR` and `ADB` overrides. Designers do not need AP
 
 Designers use `design/*` branches and only their three folders above. Preserve Unity `.meta` files. The repository includes English AI instructions, CODEOWNERS and a design-boundary check. Those are review controls; they are not a local filesystem lock. Do not merge core changes without the owner's review.
 
-GitHub declined enforced branch protection for this private repository on the current account plan. Review design pull requests manually before merging, and do not push design work directly to `main`.
+The original private-repository handoff reported that enforced branch protection was unavailable on its account plan. That historical note does not establish protection settings for this public repository. Review design pull requests before merging, and do not push design work directly to `main`.
 
 Capture files, local keys, virtual environments, generated builds and temporary experiments are excluded from Git. Unity scenes are preserved during normal builds.
 
 The supplied Judy reference is **JUDY → FOX → RAIN → TREE**. Actual designer UX/media files still need to be added. Automatic Orbis generation and public video sharing are not connected. Extra dashboard/UX scaffolding is intentionally not included in this simple handoff.
+
+</details>
+
