@@ -38,3 +38,9 @@ Unity -batchmode -projectPath /path/to/this-project \
 ```
 
 `-quit`은 붙이지 않습니다. 검사가 완료되면 종료되며 프로젝트 상위 폴더에 `tutorial-verification.json`을 기록합니다.
+
+## 테스트 영상
+
+[실제 Unity 재생 녹화](Verification/tutorial-test.mp4): 1280×800, 약 73초, 원래 음성 포함. 오프닝과 전체 튜토리얼이 자동 진행된 뒤, 재재생 중 가상 더블 핀치로 스킵하고 메뉴에 돌아오는 동작을 보여줍니다. 영상·음성은 Git LFS로 저장되므로 복제 후 `git lfs pull`을 실행하세요.
+
+다시 녹화하려면 Play를 중지하고 **StoryBricks → Record Tutorial Test**를 선택합니다. 녹화 도구가 전체 재생과 스킵을 순서대로 실행합니다. 원본 프레임과 WAV는 `work/tutorial-recording`에 저장됩니다. 이 도구는 에디터 전용이며 제품 빌드에는 포함되지 않습니다.
